@@ -3,13 +3,12 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 # Clave secreta para firmar los JWT (en producción usa una variable de entorno)
-SECRET_KEY = "SECRET_SUPER_SEGURO_CAMBIALO"  
+SECRET_KEY = "SECRET_SUPER_SEGURO"  
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60  # tiempo de expiración del token (1 hora)
 
 # Contexto para manejar contraseñas con bcrypt
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 # ==========================
 # 🔐 FUNCIONES DE CONTRASEÑA

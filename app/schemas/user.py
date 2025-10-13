@@ -6,8 +6,9 @@ class UserOut(BaseModel):
     username: str
     email: EmailStr
 
-    class Config:
-        orm_mode = True  # permite devolver objetos de SQLAlchemy directamente
+    model_config = {
+        "from_attributes": True
+    }
 
 
 # 📝 Datos que se reciben al registrar un nuevo usuario
