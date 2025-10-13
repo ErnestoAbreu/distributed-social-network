@@ -1,5 +1,8 @@
 fastapi
+SQLAlchemy
 uvicorn
 psycopg2-binary
 python-jose
-passlib
+passlib==1.7.4
+bcrypt==3.2.2
+pydantic[email]
