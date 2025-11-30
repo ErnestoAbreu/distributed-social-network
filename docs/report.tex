@@ -106,4 +106,34 @@ teniendo en cuenta un hash único. Los datos y servicios se identifican por las 
 una solicitud que desde el anillo de Chord llega al nodo correspondiente. Este enfoque asegura que la localización sea
 eficiente y escalable, después de cambios dinámicos en la red.
 
+\section{Consistencia}
+
+El sistema utilizará un modelo de consistencia eventual, garantizando que todas las réplicas llegan hacia el mismo estado
+después de un tiempo, incluso si las actualizaciones se hacen de forma concurrente. La distribución de los datos se basa
+en el anillo de Chord, donde los datos son asignados a nodos según el hash de su llave. Este enfoque garantiza un balance
+adecuado de la carga y minimiza el riesgo de sobrecarga en nodos individuales, lo que hace que se tenga una replicación
+eficiente.
+
+Para garantizar alta disponibilidad, cada dato será replicado en $k=3$ nodos consecutivos del anillo, el valor de $k$ es
+variable pero como en este caso solo se necesita tolerancia a fallos $2$, con $k=3$ se consigue garantizar esa confiabilidad
+del sistema. Esta replicación protege contra fallos de nodos individuales y asegura que aún teniendo nodos fuera de servicio
+el sistema pueda seguir respondiendo las solicitudes del cliente.
+
+Al realizar una actualización, el nodo responsable de la llave propaga los cambios a sus réplicas. Un protocolo de
+confirmación asegurará que las actualizaciones sean reconocidas por varias réplicas antes de ser consideradas como completadas.
+Este enfoque fortalece la confiabilidad de los datos y garantiza que las actualizaciones sean consistentes aún con posibles
+fallas.
+
+\section{Tolerancia a fallos}
+
+En caso de que un nodo del anillo de Chord deje de estar disponible, su ausencia no afecta el funcionamiento del sistema. Los
+datos almacenados en dicho nodo estarán replicados en $k=3$ de sus vecinos para garantizar su recuperación y disponibilidad.
+Esto asegura que las solicitudes de los clientes puedan ser atendidas incluso ante fallos parciales de nivel $k-1$.
+
+El sistema admite incorporación de nuevos nodos en tiempo de ejecución. Para cada nodo se calcula su posición en el anillo utilizando
+el hash correspondiente y redistribuye las llaves relevantes de forma automática, minimizando la pérdida de datos.
+
+Cuando un cliente intenta interactuar con un nodo inactivo, el sistema redirige automáticamente la solicitud a otro nodo que esté activo
+mediante la estructura del anillo de Chord. Además, se implementarán mecanismos de reintentos y reconexión para mantener la confiabilidad.
+
 \end{document}
