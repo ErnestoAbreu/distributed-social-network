@@ -52,6 +52,9 @@ Los servicios estarán distribuidos en dos redes de Docker:
     mantener la consistencia y la disponibilidad de los datos en todo momento. 
 \end{itemize}
 
+Las redes de Docker separadas para clientes y servidores garantiza una segregación adecuada del tráfico y
+mejoran la seguridad general del sistema.
+
 \section{Procesos}
 
 Los principales procesos necesarios para este sistema son:
@@ -67,5 +70,23 @@ Cada uno de estos servicios opera de manera asíncrona. Se utilizarán hilos par
 concurrentes, lo que permite escalabilidad y tolerancia a fallos, empleando redes de Docker separadas para
 aislar la comunicación entre clientes y servidores. Esto permite un desempeño eficiente en entornos distribuidos
 al garantizar una interacción fluida y segura entre las distintas componentes del sistema.
+
+\section{Comunicación}
+
+Para la comunicación entre el cliente y el servidor, se utilizará gRPC como protocolo principal, lo cual brinda
+una serialización eficiente y un modelo de comunicación robusto. Además, brinda una interfaz clara y tipada para
+las interacciones lo cual facilita el manejo de las operaciones síncronas como autenticación de usuarios y 
+publicación de posts.
+
+La comunicación entre servidores dentro del anillo de Chord será implementada mediante sockets lo que permite una
+gestión eficiente de la distribución de información entre los nodos y proporciona mayor control en la transferencia
+de datos. Con los sockets se pueden mantener conexiones persistentes entre los nodos del anillo de Chord, lo que
+hace más fácil la propagación de actualizaciones y la sincronización del estado distribuido.
+
+La comunicación entre los procesos se gestionará a través de la red de Docker, que proporciona el aislamiento
+necesario además de una conectividad fluida entre los contenedores. 
+
+Este modelo de comunicación permite sacar aprovechar las fortalezas de cada protocolo: gRPC para interfaces
+estructuradas cliente-servidor y sockets para la comunicación eficiente entre los nodos del anillo de Chord.
 
 \end{document}
