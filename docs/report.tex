@@ -106,7 +106,7 @@ teniendo en cuenta un hash único. Los datos y servicios se identifican por las 
 una solicitud que desde el anillo de Chord llega al nodo correspondiente. Este enfoque asegura que la localización sea
 eficiente y escalable, después de cambios dinámicos en la red.
 
-\section{Consistencia}
+\section{Consistencia y Replicación}
 
 El sistema utilizará un modelo de consistencia eventual, garantizando que todas las réplicas llegan hacia el mismo estado
 después de un tiempo, incluso si las actualizaciones se hacen de forma concurrente. La distribución de los datos se basa
@@ -135,5 +135,19 @@ el hash correspondiente y redistribuye las llaves relevantes de forma automátic
 
 Cuando un cliente intenta interactuar con un nodo inactivo, el sistema redirige automáticamente la solicitud a otro nodo que esté activo
 mediante la estructura del anillo de Chord. Además, se implementarán mecanismos de reintentos y reconexión para mantener la confiabilidad.
+
+\section{Seguridad}
+
+Con respecto a la seguridad en la comunicación, gRPC que proporciona una comunicación segura clientes y servidores mediante el uso de
+canales (TLS/SSL), protegiendo la información de posibles ataques como la intercepción de datos.
+
+El uso del anillo de Chord garantiza una distribución descentralizada de datos, reduciendo puntos de falla, sin embargo la seguridad depende
+de la validación de nodos participantes para evitar que la entrada de nodos maliciosos comprometan el sistema. La separación de las redes de Docker permite aislar el tráfico entre las redes de clientes y servidores, esto minimiza la exposición de
+componentes críticos.
+
+El sistema utilizará autenticación de usuarios para garantizar que solo personas autorizadas puedan utilizar los servicios que ofrece el sistema, como son
+la publicación de posts, seguir nuevos usuarios; además se hará uso de tokens seguros como JWT para fortalecer esta seguridad. En cuanto a la autorización, los
+servidores verificarán los permisos de los usuarios para evitar que usuarios no autorizados realicen operaciones sensibles/no permitidas en el sistema, reduciendo el
+riesgo a accesos indebidos.
 
 \end{document}
