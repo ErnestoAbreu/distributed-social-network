@@ -42,5 +42,30 @@ de datos. A continuación se especifica en más detalle el funcionamiento de cad
     post o usuario. Implementa las funcionalidades específicas de Chord para distribuir y localizar datos.
 \end{itemize}
 
+Los servicios estarán distribuidos en dos redes de Docker:
+\begin{itemize}
+    \item Red de clientes: alojará múltiples instancias de clientes que interactúan directamente con los
+    usuarios, estas instancias no comparten información entre sí y dependen completamente de la red de
+    servidores para procesar cada uno de los servicios del sistema.
+    \item Red de servidores: contiene los contenedores que ejecutan los servicios del servidor, incluyendo
+    el repositorio de datos y los nodos en el anillo de Chord. Los servidores se comunican entre sí para
+    mantener la consistencia y la disponibilidad de los datos en todo momento. 
+\end{itemize}
+
+\section{Procesos}
+
+Los principales procesos necesarios para este sistema son:
+\begin{enumerate}
+    \item Los clientes, que se encargan de manejar las solicitudes de los usuarios.
+    \item Los servidores, que se encargan de ejecutar servicios específicos que requiere el sistema.
+    \item Un repositorio de datos que actúa como intermediario para gestionar almacenamiento y recuperación
+    de datos.
+    \item Los nodos del anillo de Chord que se encargan de distribuir y almacenar los datos hasheados.
+\end{enumerate}
+
+Cada uno de estos servicios opera de manera asíncrona. Se utilizarán hilos para manejar las solicitudes
+concurrentes, lo que permite escalabilidad y tolerancia a fallos, empleando redes de Docker separadas para
+aislar la comunicación entre clientes y servidores. Esto permite un desempeño eficiente en entornos distribuidos
+al garantizar una interacción fluida y segura entre las distintas componentes del sistema.
 
 \end{document}
