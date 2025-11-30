@@ -1,0 +1,46 @@
+\documentclass[11pt]{article}
+
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+\title{Informe - Red Social}
+\author{Eduardo Brito Labrada (C411) \\ Ernesto Abreu Peraza (C412)}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Arquitectura}
+
+El proyecto consiste en implementar una red social distribuida para la comunicación siguiendo
+la idea en la cual se base Twitter. El sistema debe brindar una infraestructura para el manejo
+de usuarios, de manera que puedan publicar sus mensajes, volver a publicar mensajes que consideren
+interesantes de otros usuarios y escoger quienes van a ser sus amigos. Además, como parte del 
+manejo de usuarios, se debe proporcionar un mecanismo para la autenticación distribuida de manera
+que se logre un modelo que no sea centralizado.
+
+Para la arquitectura, nos basaremos en una red de servidores y clientes que se comunicana través
+de gRPC. Los servidores están organizados en un anillo de Chord para la distribución y almacenamiento
+de datos. A continuación se especifica en más detalle el funcionamiento de cada parte del sistema:
+
+\begin{itemize}
+    \item Cliente: se encarga de localizar un servidor activo en la red para enviar solicitudes. Al
+    servidor localizado le solicita la publicación de posts, seguimiento de usuarios o autenticación.
+    \item Servidor: se encarga de recibir y procesar solicitudes que le llegan de los clientes. Además,
+    es quien ofrece los servicios requeridos por el sistema como publicación de posts, autenticación de 
+    los usuarios y manejo de relaciones entre los usuarios.
+    \item Repositorio de Datos: es el intermediario que se encarga de gestionar el almacenamiento y la
+    recuperación de los datos. Se comunica con los nodos del anillo de Chord para relizar el almacenamiento
+    distribuido.
+    \item Nodos en el anillo de Chord: cada nodo almacena datos según el hash calculado para la llave del 
+    post o usuario. Implementa las funcionalidades específicas de Chord para distribuir y localizar datos.
+\end{itemize}
+
+
+\end{document}
