@@ -98,6 +98,12 @@ junto a un protocolo de toma de decisiones distribuida para coordinar acciones c
 o manejo de fallos, permitiendo que los nodos siempre se mantengan consistentes en el sistema, además siendo de forma
 eficiente y confiable.
 
+\section{Nombrado y Localización}
 
+La localización de recursos se hará mediante el anillo de Chord, que asigna a cada recurso con un nodo específico
+teniendo en cuenta un hash único. Los datos y servicios se identifican por las llaves hash obtenidas de identificadores
+únicos lo que garantiza una distribución uniforme. Para ubicar y acceder a los datos o servicios, el cliente realiza
+una solicitud que desde el anillo de Chord llega al nodo correspondiente. Este enfoque asegura que la localización sea
+eficiente y escalable, después de cambios dinámicos en la red.
 
 \end{document}
