@@ -89,4 +89,15 @@ necesario además de una conectividad fluida entre los contenedores.
 Este modelo de comunicación permite sacar aprovechar las fortalezas de cada protocolo: gRPC para interfaces
 estructuradas cliente-servidor y sockets para la comunicación eficiente entre los nodos del anillo de Chord.
 
+\section{Coordinación}
+
+La coordinación entre los servicios se manejará mediante mecanismos de sincronización y consenso para garantizar
+acceso exclusivo a recursos compartidos y evitar condiciones de carrera. Se utilizarán algoritmos distribuidos como
+el de exclusión mutua distribuida, que asegura que un solo nodo pueda modificar un recurso en el momento dado,
+junto a un protocolo de toma de decisiones distribuida para coordinar acciones críticas como la actualización de datos
+o manejo de fallos, permitiendo que los nodos siempre se mantengan consistentes en el sistema, además siendo de forma
+eficiente y confiable.
+
+
+
 \end{document}
