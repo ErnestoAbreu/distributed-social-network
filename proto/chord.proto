@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package chord;
+
+service Chord {
+  // Basic Liveness check
+  rpc Ping (Empty) returns (Empty) {}
+
+  // Used to find the owner of a specific ID
+  rpc FindSuccessor (NodeId) returns (NodeInfo) {}
+
+  // Essential for Zave's correctness: fetch the successor's view of the ring
+  rpc GetSuccessorList (Empty) returns (NodeList) {}
+
+  // Used to update predecessor pointers
+  rpc GetPredecessor (Empty) returns (NodeInfo) {}
+  rpc Notify (NodeInfo) returns (Empty) {}
+}
+
+message Empty {}
+
+message NodeId {
+  uint64 id = 1;
+}
+
+message NodeInfo {
+  uint64 id = 1;
+  string address = 2; // host:port
+}
+
+message NodeList {
+  repeated NodeInfo nodes = 1;
+}
