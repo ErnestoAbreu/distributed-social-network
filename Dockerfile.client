@@ -1,0 +1,27 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    iputils-ping \
+    dnsutils \
+    net-tools \
+    sed \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY client/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir grpcio-tools
+
+COPY . .
+
+# 1. Compilar protos usando Python para expandir los archivos
+RUN python -c "import glob; import os; os.system(f'python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. ' + ' '.join(glob.glob('protos/*.proto')))"
+
+# 2. Corregir los imports internos
+RUN sed -i 's/import \(.*_pb2\)/from protos import \1/' protos/*_pb2*.py
+
+ENV PYTHONPATH=/app
+EXPOSE 8501
+
+CMD ["streamlit", "run", "client/main.py", "--server.port=8501", "--server.address=0.0.0.0"]
