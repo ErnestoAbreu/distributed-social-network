@@ -1,0 +1,56 @@
+syntax = "proto3";
+package posts;
+
+import "models.proto";
+
+service PostService {
+    rpc Publish(PostRequest) returns (PostResponse);
+    rpc Repost(RepostRequest) returns (RepostResponse);
+    rpc GetPosts(GetPostsRequest) returns (GetPostsResponse);
+    rpc GetPostsId(GetPostsIdRequest) returns (GetPostsIdResponse);
+    rpc GetPost(GetPostRequest) returns (GetPostResponse);
+}
+
+message PostRequest {
+    string user_id = 1;
+    string content = 2;
+}
+
+message PostResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message RepostRequest {
+    string user_id = 1;
+    string original_post_id = 2;
+}
+
+message RepostResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetPostsRequest {
+    string user_id = 1;
+}
+
+message GetPostsResponse {
+    repeated models.Post posts = 1;
+}
+
+message GetPostsIdRequest {
+    string user_id = 1;
+}
+
+message GetPostsIdResponse {
+    repeated string posts_id = 1;
+}
+
+message GetPostRequest {
+    string post_id = 1;
+}
+
+message GetPostResponse {
+    models.Post post = 1;
+}

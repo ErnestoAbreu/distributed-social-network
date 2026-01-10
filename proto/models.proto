@@ -1,0 +1,32 @@
+syntax = "proto3";
+package models;
+
+message User {
+    string user_id = 1;
+    string email = 2;
+    string name = 3;
+    string password_hash = 4;
+}
+
+message Post {
+    string post_id = 1;
+    string user_id = 2;
+    string content = 3;
+    string timestamp = 4;
+    bool is_repost = 5;
+    string original_post_id = 6;
+    string original_post_user_id = 7;
+    string original_post_timestamp = 8;
+}
+
+message UserPosts {
+    repeated string posts_id = 1;
+}
+
+message UserFollowing {
+    repeated string following = 1;
+}
+
+message UserFollowers {
+    repeated string followers = 1;
+}

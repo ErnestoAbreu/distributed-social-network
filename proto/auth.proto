@@ -1,0 +1,27 @@
+syntax = "proto3";
+package auth;
+
+import "models.proto";
+
+service AuthService {
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    rpc Login(LoginRequest) returns (LoginResponse);
+}
+
+message RegisterRequest {
+    models.User user = 1;
+}
+
+message RegisterResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message LoginRequest {
+    string username = 1;
+    string password = 2;
+}
+
+message LoginResponse {
+    string token = 1;
+}

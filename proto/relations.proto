@@ -1,0 +1,45 @@
+syntax = "proto3";
+package relations;
+
+service RelationsService {
+    rpc Follow(FollowRequest) returns (FollowResponse);
+    rpc Unfollow(UnfollowRequest) returns (UnfollowResponse);
+    rpc GetFollowing(GetFollowingRequest) returns (GetFollowingResponse);
+    rpc GetFollowers(GetFollowersRequest) returns (GetFollowersResponse);
+}
+
+message FollowRequest {
+    string follower_id = 1;
+    string followed_id = 2;
+}
+
+message FollowResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message UnfollowRequest {
+    string follower_id = 1;
+    string unfollowed_id = 2;
+}
+
+message UnfollowResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetFollowingRequest {
+    string user_id = 1;
+}
+
+message GetFollowingResponse {
+    repeated string following = 1;
+}
+
+message GetFollowersRequest {
+    string user_id = 1;
+}
+
+message GetFollowersResponse {
+    repeated string followers = 1;
+}
