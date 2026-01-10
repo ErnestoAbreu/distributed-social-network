@@ -1,0 +1,209 @@
+import logging
+import os
+import grpc
+import time
+import datetime
+from concurrent import futures
+
+from server.server.auth import AuthRepository
+from protos.models_pb2 import Post, UserPosts
+from protos.posts_pb2 import PostResponse, GetPostsResponse, RepostResponse, GetPostsIdResponse, GetPostResponse
+from protos.posts_pb2_grpc import PostServiceServicer, add_PostServiceServicer_to_server
+
+logger = logging.getLogger('socialnet.server.posts')
+# logger.setLevel(logging.INFO)
+
+
+class PostRepository:
+    def __init__(self, node) -> None:
+        self.node = node
+
+    def save_post(self, post):
+        path = os.path.join('Post', post.post_id)
+        error = save(self.node, post, path)
+
+        if error:
+            logger.error(f'Failed to save post {error}')
+            return grpc.StatusCode.INTERNAL
+
+        return None
+
+    def load_post(self, post_id):
+        path = os.path.join('Post', str(post_id))
+        post, error = load(self.node, path, Post())
+
+        if error == grpc.StatusCode.NOT_FOUND:
+            return None, grpc.StatusCode.NOT_FOUND
+
+        if error:
+            return None, grpc.StatusCode.INTERNAL
+
+        return post, None
+
+    def add_to_posts_list(self, post_id, username):
+        path = os.path.join('User', username.lower(), 'Posts')
+        user_posts, error = load(self.node, path, UserPosts())
+
+        nposts = []
+        if not error:
+            nposts = user_posts.posts_id
+
+        nposts.append(post_id)
+        error = save(self.node, UserPosts(posts_id=nposts), path)
+
+        if error:
+            logger.error(
+                f'Failed to save post {post_id} to user {username}: {error}')
+            return grpc.StatusCode.INTERNAL
+
+        return None
+
+    def load_posts_list(self, username):
+        path = os.path.join('User', username.lower(), 'Posts')
+        user_posts, error = load(self.node, path, UserPosts())
+
+        posts = []
+        if error == grpc.StatusCode.NOT_FOUND:
+            return posts, None
+
+        if error:
+            logger.error(f'Failed to load user {username} posts: {error}')
+            return grpc.StatusCode.INTERNAL, None
+
+        for post_id in user_posts.posts_id:
+            post, error = self.load_post(post_id)
+            if error:
+                return None, error
+            posts.append(post)
+
+        return posts, None
+
+    def load_posts_id_list(self, username):
+        path = os.path.join('User', username.lower(), 'Posts')
+        user_posts, error = load(self.node, path, UserPosts())
+
+        posts = []
+        if error == grpc.StatusCode.NOT_FOUND:
+            return posts, None
+
+        if error:
+            logger.error(f'Failed to load user {username} posts: {error}')
+            return grpc.StatusCode.INTERNAL, None
+
+        for post_id in user_posts.posts_id:
+            posts.append(post_id)
+
+        return posts, None
+
+
+class PostService(PostServiceServicer):
+    def __init__(self, post_repo: PostRepository, auth_repo: AuthRepository):
+        self.post_repo = post_repo
+        self.auth_repo = auth_repo
+
+    def GetPosts(self, request, context):
+        user_id = request.user_id
+
+        if not self.auth_repo.load_user(user_id):
+            context.abort(grpc.StatusCode.NOT_FOUND, 'User not found')
+
+        posts, error = self.post_repo.load_posts_list(user_id)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL,
+                          'Failed to load user posts')
+
+        return GetPostsResponse(posts=posts)
+
+    def GetPostsId(self, request, context):
+        user_id = request.user_id
+
+        if not self.auth_repo.load_user(user_id):
+            context.abort(grpc.StatusCode.NOT_FOUND, 'User not found')
+
+        posts, error = self.post_repo.load_posts_id_list(user_id)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL,
+                          'Failed to load user posts id')
+
+        return GetPostsIdResponse(posts_id=posts)
+
+    def GetPost(self, request, context):
+        post_id = request.post_id
+
+        post, error = self.post_repo.load_post(post_id)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL, 'Failed to get post')
+
+        return GetPostResponse(post=post)
+
+    def Publish(self, request, context):
+        user_id = request.user_id
+        content = request.content
+
+        post_id = str(time.time_ns())
+        iso_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+        post = Post(post_id=post_id, user_id=user_id, content=content,
+                    timestamp=iso_timestamp, is_repost=False)
+
+        error = self.post_repo.save_post(post)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL, 'Failed to save post')
+
+        error = self.post_repo.add_to_posts_list(post_id, user_id)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL,
+                          'Failed to add post to user posts')
+
+        return PostResponse(success=True, message='Post published successfully')
+
+    def Repost(self, request, context):
+        user_id = request.user_id
+        original_post_id = request.original_post_id
+
+        posts, error = self.post_repo.load_posts_list(user_id)
+
+        for post in posts:
+            if post.original_post_id == original_post_id:
+                return RepostResponse(success=False, message='Already reposted')
+
+            if post.post_id == original_post_id:
+                return RepostResponse(success=False, message='You are the owner of the post')
+
+        original_post, error = self.post_repo.load_post(original_post_id)
+
+        if error:
+            context.abort(grpc.StatusCode.NOT_FOUND, 'Original post not found')
+
+        post_id = str(time.time_ns())
+        iso_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+        post = Post(post_id=post_id, user_id=user_id, content=original_post.content, timestamp=iso_timestamp, is_repost=True,
+                    original_post_id=original_post.post_id, original_post_user_id=original_post.user_id, original_post_timestamp=original_post.timestamp)
+
+        error = self.post_repo.save_post(post)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL, 'Failed to save repost')
+
+        error = self.post_repo.add_to_posts_list(post_id, user_id)
+
+        if error:
+            context.abort(grpc.StatusCode.INTERNAL,
+                          'Failed to add repost to user posts')
+
+        return RepostResponse(success=True, message='Post reposted successfully')
+
+
+def start_post_service(addr, post_repo: PostRepository, auth_repo: AuthRepository, max_workers: int = 10):
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    add_PostServiceServicer_to_server(
+        PostService(post_repo, auth_repo), server)
+    server.add_insecure_port(addr)
+    server.start()
+    port = str(addr).split(':')
+    logger.info(f'Post service started on port {port[1]}')
+    server.wait_for_termination()
