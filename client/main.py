@@ -344,7 +344,7 @@ def post_view():
             st.session_state.logged_user, original_message_id, token)
 
         if repost_response and repost_response.success:
-            st.success('Message reposted successfully!')PP
+            st.success('Message reposted successfully!')
             st.session_state.repost_clicked = False
             st.rerun()
         else:
