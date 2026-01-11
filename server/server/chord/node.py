@@ -19,7 +19,7 @@ class ChordNode(ChordServiceServicer):
     def __init__(self, address):
         self.address = address
         self.id = hash_key(address, M_BITS)
-        self.successor = NodeInfo(id=self.id, address=self.address)
+        self.successor = None
         self.predecessor = None
         self.finger = FingerTable(self.id, M_BITS)
         self.storage = Storage()
@@ -67,7 +67,15 @@ class ChordNode(ChordServiceServicer):
     # ---------------- Chord Logic ----------------
     def join(self, known_node):
         if known_node:
-            self.successor = known_node.find_successor(self.id)
+            successor = known_node.find_successor(self.id)
+            if successor and successor.address:
+                self.successor = successor
+            else:
+                logger.error('find_successor returned invalid result')
+                self.successor = NodeInfo(id=self.id, address=self.address)
+        else:
+            self.successor = NodeInfo(id=self.id, address=self.address)
+        
 
     def find_successor(self, id_) -> NodeInfo:
         # If we are the only node, return ourselves
