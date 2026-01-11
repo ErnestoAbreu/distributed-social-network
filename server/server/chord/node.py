@@ -9,7 +9,6 @@ from .protos.chord_pb2_grpc import ChordServiceServicer, add_ChordServiceService
 
 from .utils.hashing import hash_key
 from .utils.config import *
-from .finger_table import FingerTable
 from .storage import Storage
 from .failure import FailureDetector
 
@@ -21,7 +20,6 @@ class ChordNode(ChordServiceServicer):
         self.id = hash_key(address, M_BITS)
         self.successor = None
         self.predecessor = None
-        self.finger = FingerTable(self.id, M_BITS)
         self.storage = Storage()
         self.lock = threading.Lock()
 
@@ -46,10 +44,11 @@ class ChordNode(ChordServiceServicer):
             self.predecessor = request
         return Empty()
 
+
     def Ping(self, request, context):
         return Empty()
 
-    # ---------------- DHT RPCs ----------------
+
     def Put(self, request, context):
         self.storage.put(request.key, request.value)
         return Empty()
@@ -77,17 +76,17 @@ class ChordNode(ChordServiceServicer):
             self.successor = NodeInfo(id=self.id, address=self.address)
         
 
-    def find_successor(self, id_) -> NodeInfo:
+    def find_successor(self, key) -> NodeInfo:
         # If we are the only node, return ourselves
         if self.successor.address == self.address:
             return self.successor
         
         # If id is between us and our successor
-        if self.id < id_ <= self.successor.id:
+        if self.id < key <= self.successor.id:
             return self.successor
         
         # Otherwise, ask the closest preceding node
-        n0 = self.closest_preceding_node(id_)
+        n0 = self.closest_preceding_node(key)
         if n0.address == self.address:
             # We are the closest, return our successor
             return self.successor
@@ -98,7 +97,7 @@ class ChordNode(ChordServiceServicer):
             from .protos.chord_pb2_grpc import ChordServiceStub
             from .protos.chord_pb2 import ID
             stub = ChordServiceStub(channel)
-            result = stub.FindSuccessor(ID(id=id_), timeout=2)
+            result = stub.FindSuccessor(ID(id=key), timeout=2)
             channel.close()
             return result
         except:
@@ -129,18 +128,6 @@ class ChordNode(ChordServiceServicer):
             channel.close()
         except Exception as e:
             logger.warning(f"Stabilize failed: {e}")
-
-
-    def fix_fingers(self):
-        # Only fix fingers if we have other nodes in the ring
-        if self.successor.address == self.address:
-            return
-        
-        for i in range(M_BITS):
-            try:
-                self.finger.table[i] = self.find_successor(self.finger.start(i))
-            except Exception as e:
-                logger.warning(f"Failed to fix finger {i}: {e}")
 
 
     def check_predecessor(self):
@@ -177,5 +164,4 @@ class ChordNode(ChordServiceServicer):
         while True:
             time.sleep(STABILIZE_INTERVAL)
             self.stabilize()
-            self.fix_fingers()
             self.check_predecessor()
