@@ -6,22 +6,25 @@ import datetime
 from concurrent import futures
 
 from server.server.auth import AuthRepository
-from server.server.chord.dht_operations import exists, load, save
+from server.server.chord.core import load, save
 from protos.models_pb2 import Post, UserPosts
 from protos.posts_pb2 import PostResponse, GetPostsResponse, RepostResponse, GetPostsIdResponse, GetPostResponse
 from protos.posts_pb2_grpc import PostServiceServicer, add_PostServiceServicer_to_server
+from server.server.chord.node import ChordNode
 
 logger = logging.getLogger('socialnet.server.posts')
-# logger.setLevel(logging.INFO)
 
 
 class PostRepository:
-    def __init__(self, node) -> None:
+    def __init__(self, node: ChordNode) -> None:
         self.node = node
 
-    def save_post(self, post):
-        path = os.path.join('Post', post.post_id)
-        error = save(self.node, post, path)
+    def create_post_key(self, post_id: str) -> str:
+        return os.path.join('Post', post_id)
+
+    def save_post(self, post: Post) -> grpc.StatusCode | None:
+        key = self.create_post_key(post.post_id)
+        error = save(self.node, key, post)
 
         if error:
             logger.error(f'Failed to save post {error}')
@@ -29,9 +32,9 @@ class PostRepository:
 
         return None
 
-    def load_post(self, post_id):
-        path = os.path.join('Post', str(post_id))
-        post, error = load(self.node, path, Post())
+    def load_post(self, post_id: str) -> tuple[Post, grpc.StatusCode | None]:
+        key = self.create_post_key(post_id)
+        post, error = load(self.node, key, Post())
 
         if error == grpc.StatusCode.NOT_FOUND:
             return None, grpc.StatusCode.NOT_FOUND
@@ -50,7 +53,7 @@ class PostRepository:
             nposts = user_posts.posts_id
 
         nposts.append(post_id)
-        error = save(self.node, UserPosts(posts_id=nposts), path)
+        error = save(self.node, path, UserPosts(posts_id=nposts))
 
         if error:
             logger.error(
@@ -145,9 +148,8 @@ class PostService(PostServiceServicer):
         content = request.content
 
         post_id = str(time.time_ns())
-        iso_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
-        post = Post(post_id=post_id, user_id=user_id, content=content,
-                    timestamp=iso_timestamp, is_repost=False)
+        iso_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        post = Post(post_id=post_id, user_id=user_id, content=content, timestamp=iso_timestamp, is_repost=False)
 
         error = self.post_repo.save_post(post)
 
@@ -181,7 +183,7 @@ class PostService(PostServiceServicer):
             context.abort(grpc.StatusCode.NOT_FOUND, 'Original post not found')
 
         post_id = str(time.time_ns())
-        iso_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+        iso_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
         post = Post(post_id=post_id, user_id=user_id, content=original_post.content, timestamp=iso_timestamp, is_repost=True,
                     original_post_id=original_post.post_id, original_post_user_id=original_post.user_id, original_post_timestamp=original_post.timestamp)
 
@@ -201,10 +203,12 @@ class PostService(PostServiceServicer):
 
 def start_post_service(addr, post_repo: PostRepository, auth_repo: AuthRepository, max_workers: int = 10):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    add_PostServiceServicer_to_server(
-        PostService(post_repo, auth_repo), server)
+    add_PostServiceServicer_to_server(PostService(post_repo, auth_repo), server)
+    
     server.add_insecure_port(addr)
     server.start()
+
     port = str(addr).split(':')
     logger.info(f'Post service started on port {port[1]}')
+    
     server.wait_for_termination()

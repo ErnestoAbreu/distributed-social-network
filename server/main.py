@@ -17,7 +17,8 @@ logger = logging.getLogger('socialnet.server.main')
 
 def run_services():
     host = os.getenv('NODE_HOST') or socket.gethostbyname(socket.gethostname())
-    node = ChordNode(host, DEFAULT_PORT)
+    address = f'{host}:{DEFAULT_PORT}'
+    node = ChordNode(address)
 
     logger.info(f'Chord Node initiated with IP: {host}')
 
@@ -43,19 +44,18 @@ def run_services():
 
     logger.info('gRPC services listening in ports 50000, 50001, 50002')
 
+    node.join(None)
+    node.serve()
+
 def exit_handler(signal, frame):
     logger.info('Closing server...')
     sys.exit(0)
-
 
 if __name__ == '__main__':
     signal.signal(signalnum=signal.SIGINT, handler=exit_handler)
     signal.signal(signalnum=signal.SIGTERM, handler=exit_handler)
 
-    run_services()
-
     try:
-        while True:
-            time.sleep(1)
+        run_services()
     except KeyboardInterrupt:
         exit_handler(None, None)

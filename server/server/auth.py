@@ -43,7 +43,7 @@ class AuthRepository:
         username = user.user_id
         logger.info(f'Save user: {username}')
         key = self.create_key(username)
-        error = save(self.node, user, key)
+        error = save(self.node, key, user)
 
         if error:
             return grpc.StatusCode.INTERNAL
@@ -122,8 +122,7 @@ def start_auth_service(addr, auth_repo: AuthRepository, max_workers: int = 10):
 
     server.add_insecure_port(addr)
     server.start()
-
+    
     port = str(addr).split(':')
     logger.info(f'Auth service started on port {port[1]}')
-    
     server.wait_for_termination()

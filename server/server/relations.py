@@ -5,7 +5,7 @@ import grpc
 from concurrent import futures
 
 from server.server.auth import AuthRepository
-from server.server.chord.dht_operations import exists, load, save
+from server.server.chord.core import exists, load, save
 from protos.models_pb2 import UserFollowing, UserFollowers
 from protos.relations_pb2 import FollowResponse, UnfollowResponse, GetFollowingResponse, GetFollowersResponse
 from protos.relations_pb2_grpc import RelationsServiceServicer, add_RelationsServiceServicer_to_server
@@ -65,7 +65,7 @@ class RelationsRepository:
         if followed_username not in following:
             following.append(followed_username)
 
-            error = save(self.node, UserFollowing(following=following), path)
+            error = save(self.node, path, UserFollowing(following=following))
 
             if error:
                 logger.error(f'Failed to save following list {error}')
@@ -86,7 +86,7 @@ class RelationsRepository:
         if unfollowed_username in following:
             following.remove(unfollowed_username)
 
-            error = save(self.node, UserFollowing(following=following), path)
+            error = save(self.node, path,  UserFollowing(following=following))
 
             if error:
                 logger.error(f'Failed to save following list {error}')
@@ -107,7 +107,7 @@ class RelationsRepository:
         if follower_username not in followers:
             followers.append(follower_username)
 
-            error = save(self.node, UserFollowers(followers=followers), path)
+            error = save(self.node, path, UserFollowers(followers=followers))
 
             if error:
                 logger.error(f'Failed to save followers list {error}')
@@ -128,7 +128,7 @@ class RelationsRepository:
         if unfollower_username in followers:
             followers.remove(unfollower_username)
 
-            error = save(self.node, UserFollowers(followers=followers), path)
+            error = save(self.node, path, UserFollowers(followers=followers))
 
             if error:
                 logger.error(f'Failed to save followers {error}')
