@@ -5,6 +5,7 @@ import grpc
 from concurrent import futures
 
 from server.server.auth import AuthRepository
+from server.server.chord.dht_operations import exists, load, save
 from protos.models_pb2 import UserFollowing, UserFollowers
 from protos.relations_pb2 import FollowResponse, UnfollowResponse, GetFollowingResponse, GetFollowersResponse
 from protos.relations_pb2_grpc import RelationsServiceServicer, add_RelationsServiceServicer_to_server

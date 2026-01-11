@@ -6,6 +6,7 @@ import datetime
 from concurrent import futures
 
 from server.server.auth import AuthRepository
+from server.server.chord.dht_operations import exists, load, save
 from protos.models_pb2 import Post, UserPosts
 from protos.posts_pb2 import PostResponse, GetPostsResponse, RepostResponse, GetPostsIdResponse, GetPostResponse
 from protos.posts_pb2_grpc import PostServiceServicer, add_PostServiceServicer_to_server

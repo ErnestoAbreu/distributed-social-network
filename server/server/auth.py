@@ -1,7 +1,6 @@
 import logging
 import os
 import grpc
-import time
 import jwt
 import datetime
 
@@ -10,10 +9,9 @@ from concurrent import futures
 from protos.models_pb2 import User
 from protos.auth_pb2 import RegisterResponse, LoginResponse
 from protos.auth_pb2_grpc import AuthServiceServicer, add_AuthServiceServicer_to_server
+from server.server.chord.dht_operations import exists, load, save
 
 logger = logging.getLogger('socialnet.server.auth')
-# logger.setLevel(logging.INFO)
-
 
 class AuthRepository:
     def __init__(self, node) -> None:
