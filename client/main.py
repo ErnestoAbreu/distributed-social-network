@@ -278,7 +278,7 @@ def refresh_posts():
             for post_id in response_ids.posts_id:
                 response_post = asyncio.run(get_post(post_id, token))
                 if response_post:
-                    posts.append(response_post.message)
+                    posts.append(response_post.post)
                 else:
                     st.error(f'Failed to load post {post_id}')
         else:
@@ -316,11 +316,11 @@ def post_view():
 
             if response and response.success:
                 refresh_posts()
-                st.success(response.post)
+                st.success(response.message)
             else:
                 post = ""
                 if response:
-                    post = response.post
+                    post = response.message
                 st.error(f'Failed to publish the post: {post}')
 
     if st.button('🔄 Refresh posts'):
@@ -350,7 +350,7 @@ def post_view():
         else:
             post = ''
             if repost_response:
-                post = repost_response.post
+                post = repost_response.message
             st.error(f'Failed to repost the message: {post}')
         st.session_state.repost_clicked = False
 
