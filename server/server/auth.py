@@ -9,7 +9,7 @@ from concurrent import futures
 from protos.models_pb2 import User
 from protos.auth_pb2 import RegisterResponse, LoginResponse
 from protos.auth_pb2_grpc import AuthServiceServicer, add_AuthServiceServicer_to_server
-from server.server.chord.dht_operations import exists, load, save
+from server.server.chord.core import exists, load, save
 
 logger = logging.getLogger('socialnet.server.auth')
 
@@ -17,16 +17,19 @@ class AuthRepository:
     def __init__(self, node) -> None:
         self.node = node
 
-    def exists_user(self, username: str):
-        logger.info(f'Check if username exists: {username}')
-        path = os.path.join('User', username.lower())
-        return exists(self.node, path)
+    def create_key(self, username: str) -> str:
+        return os.path.join('User', username.lower())
 
-    def load_user(self, username: str):
+    def exists_user(self, username: str) -> tuple[bool, grpc.StatusCode | None]:
+        logger.info(f'Check if username exists: {username}')
+        key = self.create_key(username)
+        return exists(self.node, key)
+
+    def load_user(self, username: str) -> tuple[User, grpc.StatusCode | None]:
         logger.info(f'Load user: {username}')
 
-        path = os.path.join('User', username.lower())
-        user, error = load(self.node, path, User())
+        key = self.create_key(username)
+        user, error = load(self.node, key, User())
 
         if error == grpc.StatusCode.NOT_FOUND:
             return None, grpc.StatusCode.NOT_FOUND
@@ -36,11 +39,11 @@ class AuthRepository:
 
         return user, None
 
-    def save_user(self, user):
-        logger.info(f'Save user: {user.user_id}')
-
-        path = os.path.join('User', user.user_id.lower())
-        error = save(self.node, user, path)
+    def save_user(self, user) -> grpc.StatusCode | None:
+        username = user.user_id
+        logger.info(f'Save user: {username}')
+        key = self.create_key(username)
+        error = save(self.node, user, key)
 
         if error:
             return grpc.StatusCode.INTERNAL
@@ -61,12 +64,14 @@ class AuthService(AuthServiceServicer):
 
         exists, error = self.auth_repo.exists_user(user.user_id)
         if exists:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT,
-                          'User already exists')
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, 'User already exists')
+            return RegisterResponse(success=False)
+        if error:
+            context.abort(error, 'Registration failed')
             return RegisterResponse(success=False)
 
         error = self.auth_repo.save_user(user)
-        if error is None:
+        if error:
             logger.error('Registration failed')
             return RegisterResponse(success=False, message='Registration failed')
 
@@ -83,18 +88,15 @@ class AuthService(AuthServiceServicer):
 
         if error:
             if error == grpc.StatusCode.NOT_FOUND:
-                context.abort(grpc.StatusCode.PERMISSION_DENIED,
-                              'Incorrect username or password')
+                context.abort(grpc.StatusCode.PERMISSION_DENIED, 'Incorrect username or password')
             else:
-                context.abort(error, 'Error')
+                context.abort(error, 'Login failed')
 
         if user is None:
-            context.abort(grpc.StatusCode.PERMISSION_DENIED,
-                          'Incorrect username or password')
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, 'Incorrect username or password')
 
         if not user or user.password_hash != password:
-            context.abort(grpc.StatusCode.PERMISSION_DENIED,
-                          'Incorrect username or password')
+            context.abort(grpc.StatusCode.PERMISSION_DENIED, 'Incorrect username or password')
 
         logger.info('Successful login')
         token = self.gen_token(user)
@@ -108,18 +110,20 @@ class AuthService(AuthServiceServicer):
             'expires': expiration
         }
 
-        token = jwt.encode(payload, self.jwt_private_key,
-                           algorithm=self.jwt_algorithm)
+        token = jwt.encode(payload, self.jwt_private_key, algorithm=self.jwt_algorithm)
         return token
 
 
 def start_auth_service(addr, auth_repo: AuthRepository, max_workers: int = 10):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+
     SECRET_KEY = os.getenv("SECRET_KEY", 'dev_secret_123')
-    add_AuthServiceServicer_to_server(
-        AuthService(auth_repo, SECRET_KEY, 'HS256'), server)
+    add_AuthServiceServicer_to_server(AuthService(auth_repo, SECRET_KEY, 'HS256'), server)
+
     server.add_insecure_port(addr)
     server.start()
+
     port = str(addr).split(':')
     logger.info(f'Auth service started on port {port[1]}')
+    
     server.wait_for_termination()
