@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from server.server.chord.proto import chord_pb2 as chord__pb2
+from server.server.chord.protos import chord_pb2 as chord__pb2
 
 GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
