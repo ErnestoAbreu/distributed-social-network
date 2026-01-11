@@ -16,7 +16,7 @@ class FileCache:
     @staticmethod
     async def set(key, data):
         cache_file = FileCache._get_cache_path(key)
-        cache_file.parent_mkdir(parents=True, exist_ok=True)
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
         with open(cache_file, 'w') as f:
             json.dump(data, f)
 
