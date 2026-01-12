@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from server.server.chord.protos import chord_pb2 as chord__pb2
+import chord_pb2 as chord__pb2
 
 GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
@@ -44,8 +44,8 @@ class ChordServiceStub(object):
                 request_serializer=chord__pb2.Empty.SerializeToString,
                 response_deserializer=chord__pb2.NodeInfo.FromString,
                 _registered_method=True)
-        self.Notify = channel.unary_unary(
-                '/chord.ChordService/Notify',
+        self.UpdatePredecessor = channel.unary_unary(
+                '/chord.ChordService/UpdatePredecessor',
                 request_serializer=chord__pb2.NodeInfo.SerializeToString,
                 response_deserializer=chord__pb2.Empty.FromString,
                 _registered_method=True)
@@ -86,7 +86,7 @@ class ChordServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Notify(self, request, context):
+    def UpdatePredecessor(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -129,8 +129,8 @@ def add_ChordServiceServicer_to_server(servicer, server):
                     request_deserializer=chord__pb2.Empty.FromString,
                     response_serializer=chord__pb2.NodeInfo.SerializeToString,
             ),
-            'Notify': grpc.unary_unary_rpc_method_handler(
-                    servicer.Notify,
+            'UpdatePredecessor': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdatePredecessor,
                     request_deserializer=chord__pb2.NodeInfo.FromString,
                     response_serializer=chord__pb2.Empty.SerializeToString,
             ),
@@ -220,7 +220,7 @@ class ChordService(object):
             _registered_method=True)
 
     @staticmethod
-    def Notify(request,
+    def UpdatePredecessor(request,
             target,
             options=(),
             channel_credentials=None,
@@ -233,7 +233,7 @@ class ChordService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/chord.ChordService/Notify',
+            '/chord.ChordService/UpdatePredecessor',
             chord__pb2.NodeInfo.SerializeToString,
             chord__pb2.Empty.FromString,
             options,

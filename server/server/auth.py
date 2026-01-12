@@ -41,7 +41,9 @@ class AuthRepository:
 
     def save_user(self, user) -> grpc.StatusCode | None:
         username = user.user_id
+
         logger.info(f'Save user: {username}')
+        
         key = self.create_key(username)
         error = save(self.node, key, user)
 

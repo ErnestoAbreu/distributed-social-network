@@ -5,7 +5,7 @@ import time
 from concurrent import futures
 
 from .protos.chord_pb2 import NodeInfo, Empty, Value
-from .protos.chord_pb2_grpc import ChordServiceServicer, add_ChordServiceServicer_to_server
+from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_ChordServiceServicer_to_server
 
 from .utils.hashing import hash_key
 from .utils.config import *
@@ -25,7 +25,7 @@ class ChordNode(ChordServiceServicer):
 
 
     # ---------------- Chord RPCs ----------------
-    def FindSuccessor(self, request, context):
+    def FindSuccessor(self, request, context) -> NodeInfo:
         try:
             return self.find_successor(request.id)
         except Exception as e:
@@ -33,13 +33,13 @@ class ChordNode(ChordServiceServicer):
             return NodeInfo(id=self.successor.id, address=self.successor.address)
 
 
-    def GetPredecessor(self, request, context):
+    def GetPredecessor(self, request, context) -> NodeInfo:
         if self.predecessor:
             return NodeInfo(id=self.predecessor.id, address=self.predecessor.address)
-        return NodeInfo()
+        return NodeInfo(id=self.successor.id, address=self.successor.address)
 
 
-    def Notify(self, request, context):
+    def UpdatePredecessor(self, request, context) -> Empty:
         if not self.predecessor or request.id > self.predecessor.id:
             self.predecessor = request
         return Empty()
@@ -49,14 +49,14 @@ class ChordNode(ChordServiceServicer):
         return Empty()
 
 
-    def Put(self, request, context):
-        self.storage.put(request.key, request.value)
-        return Empty()
-
-
     def Get(self, request, context):
         val = self.storage.get(request.key)
         return Value(value=val if val else "")
+
+
+    def Put(self, request, context):
+        self.storage.put(request.key, request.value)
+        return Empty()
 
 
     def Delete(self, request, context):
@@ -117,7 +117,6 @@ class ChordNode(ChordServiceServicer):
         
         try:
             channel = grpc.insecure_channel(self.successor.address)
-            from .protos.chord_pb2_grpc import ChordServiceStub
             stub = ChordServiceStub(channel)
             
             x = stub.GetPredecessor(Empty(), timeout=2)
@@ -162,6 +161,6 @@ class ChordNode(ChordServiceServicer):
         FailureDetector(self, PING_INTERVAL).start()
 
         while True:
-            time.sleep(STABILIZE_INTERVAL)
             self.stabilize()
             self.check_predecessor()
+            time.sleep(STABILIZE_INTERVAL)

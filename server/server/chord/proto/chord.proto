@@ -5,12 +5,12 @@ package chord;
 service ChordService {
     rpc FindSuccessor (ID) returns (NodeInfo);
     rpc GetPredecessor (Empty) returns (NodeInfo);
-    rpc Notify (NodeInfo) returns (Empty);
+    rpc UpdatePredecessor (NodeInfo) returns (Empty);
     rpc Ping (Empty) returns (Empty);
 
 
-    rpc Put (KeyValue) returns (Empty);
     rpc Get (Key) returns (Value);
+    rpc Put (KeyValue) returns (Empty);
     rpc Delete (Key) returns (Empty);
 }
 
