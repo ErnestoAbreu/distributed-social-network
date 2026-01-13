@@ -1,4 +1,5 @@
 import logging
+from multiprocessing import context
 import os
 import grpc
 import time
@@ -6,6 +7,7 @@ import datetime
 from concurrent import futures
 
 from server.server.auth import AuthRepository
+from server.server.chord import core
 from server.server.chord.core import load, save
 from protos.models_pb2 import Post, UserPosts
 from protos.posts_pb2 import PostResponse, GetPostsResponse, RepostResponse, GetPostsIdResponse, GetPostResponse
@@ -21,6 +23,9 @@ class PostRepository:
 
     def create_post_key(self, post_id: str) -> str:
         return os.path.join('Post', post_id)
+    
+    def create_user_posts_key(self, username: str) -> str:
+        return os.path.join('User', username.lower(), 'Posts')
 
     def save_post(self, post: Post) -> grpc.StatusCode | None:
         key = self.create_post_key(post.post_id)
@@ -28,6 +33,12 @@ class PostRepository:
 
         if error:
             logger.error(f'Failed to save post {error}')
+            return grpc.StatusCode.INTERNAL
+        
+        error = self.add_to_posts_list(post.post_id, post.user_id)
+
+        if error:
+            logger.error(f'Failed toa add post to user list {error}')
             return grpc.StatusCode.INTERNAL
 
         return None
@@ -45,26 +56,25 @@ class PostRepository:
         return post, None
 
     def add_to_posts_list(self, post_id, username):
-        path = os.path.join('User', username.lower(), 'Posts')
-        user_posts, error = load(self.node, path, UserPosts())
+        key = self.create_user_posts_key(username)
+        user_posts, error = load(self.node, key, UserPosts())
 
         nposts = []
         if not error:
             nposts = user_posts.posts_id
 
         nposts.append(post_id)
-        error = save(self.node, path, UserPosts(posts_id=nposts))
+        error = save(self.node, key, UserPosts(posts_id=nposts))
 
         if error:
-            logger.error(
-                f'Failed to save post {post_id} to user {username}: {error}')
+            logger.error(f'Failed to save post {post_id} to user {username}: {error}')
             return grpc.StatusCode.INTERNAL
 
         return None
 
     def load_posts_list(self, username):
-        path = os.path.join('User', username.lower(), 'Posts')
-        user_posts, error = load(self.node, path, UserPosts())
+        key = self.create_user_posts_key(username)
+        user_posts, error = load(self.node, key, UserPosts())
 
         posts = []
         if error == grpc.StatusCode.NOT_FOUND:
@@ -83,8 +93,8 @@ class PostRepository:
         return posts, None
 
     def load_posts_id_list(self, username):
-        path = os.path.join('User', username.lower(), 'Posts')
-        user_posts, error = load(self.node, path, UserPosts())
+        key = self.create_user_posts_key(username)
+        user_posts, error = load(self.node, key, UserPosts())
 
         posts = []
         if error == grpc.StatusCode.NOT_FOUND:
@@ -114,22 +124,22 @@ class PostService(PostServiceServicer):
         posts, error = self.post_repo.load_posts_list(user_id)
 
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          'Failed to load user posts')
+            context.abort(grpc.StatusCode.INTERNAL, 'Failed to load user posts')
 
         return GetPostsResponse(posts=posts)
 
     def GetPostsId(self, request, context):
         user_id = request.user_id
 
-        if not self.auth_repo.load_user(user_id):
+        exists, error = self.auth_repo.exists_user(user_id)
+
+        if not exists: 
             context.abort(grpc.StatusCode.NOT_FOUND, 'User not found')
 
         posts, error = self.post_repo.load_posts_id_list(user_id)
 
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          'Failed to load user posts id')
+            context.abort(grpc.StatusCode.INTERNAL, 'Failed to load user posts id')
 
         return GetPostsIdResponse(posts_id=posts)
 
@@ -148,19 +158,14 @@ class PostService(PostServiceServicer):
         content = request.content
 
         post_id = str(time.time_ns())
-        iso_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        iso_timestamp = core.get_time()
+
         post = Post(post_id=post_id, user_id=user_id, content=content, timestamp=iso_timestamp, is_repost=False)
 
         error = self.post_repo.save_post(post)
 
         if error:
-            context.abort(grpc.StatusCode.INTERNAL, 'Failed to save post')
-
-        error = self.post_repo.add_to_posts_list(post_id, user_id)
-
-        if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          'Failed to add post to user posts')
+            context.abort(error, 'Failed to save post')
 
         return PostResponse(success=True, message='Post published successfully')
 
