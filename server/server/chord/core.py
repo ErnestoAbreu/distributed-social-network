@@ -4,7 +4,7 @@ import logging
 from server.server.chord.node import ChordNode
 from .utils.hashing import hash_key
 from .utils.config import M_BITS, TIMEOUT
-from .protos.chord_pb2 import Key, KeyValue
+from .protos.chord_pb2 import Key, KeyValue, NodeInfo
 from .protos.chord_pb2_grpc import ChordServiceStub
 
 logger = logging.getLogger('socialnet.chord.core')
@@ -24,6 +24,9 @@ def exists(node: ChordNode, key: str) -> tuple[bool, grpc.StatusCode | None]:
     try:
         key_hash = hash_key(key, M_BITS)
         responsible_node = node.find_successor(key_hash)
+
+        if responsible_node is None:
+            responsible_node = NodeInfo(id=node.id, address=node.address)
         
         if responsible_node.address == node.address:
             return node.storage.exists(key), None
@@ -58,6 +61,9 @@ def load(node: ChordNode, key: str, prototype) -> tuple[object, grpc.StatusCode 
     try:
         key_hash = hash_key(key, M_BITS)
         responsible_node = node.find_successor(key_hash)
+
+        if responsible_node is None:
+            responsible_node = NodeInfo(id=node.id, address=node.address)
         
         if responsible_node.address == node.address:
             value = node.storage.get(key)
@@ -82,7 +88,7 @@ def load(node: ChordNode, key: str, prototype) -> tuple[object, grpc.StatusCode 
                 return None, grpc.StatusCode.NOT_FOUND
             
             try:
-                prototype.ParseFromString(value.encode('latin1'))
+                prototype.ParseFromString(response.value.encode('latin1'))
                 return prototype, None
             except Exception as e:
                 logger.error(f"Failed to parse protobuf for key {key}: {e}")
@@ -113,6 +119,9 @@ def save(node: ChordNode, key: str, prototype: object) -> grpc.StatusCode | None
     try:
         key_hash = hash_key(key, M_BITS)
         responsible_node = node.find_successor(key_hash)
+
+        if responsible_node is None:
+            responsible_node = NodeInfo(id=node.id, address=node.address)
         
         serialized_value = prototype.SerializeToString().decode('latin1')
         
@@ -135,4 +144,43 @@ def save(node: ChordNode, key: str, prototype: object) -> grpc.StatusCode | None
             
     except Exception as e:
         logger.error(f"Error saving key {key}: {e}")
+        return grpc.StatusCode.INTERNAL
+
+def delete(node: ChordNode, key: str) -> grpc.StatusCode | None:
+    """
+    Delete a key from the DHT
+    
+    Args:
+        node: ChordNode instance
+        key: The key to delete
+    Returns:
+        grpc.StatusCode error code or None if successful
+    """
+
+    try:
+        key_hash = hash_key(key, M_BITS)
+        responsible_node = node.find_successor(key_hash)
+
+        if responsible_node is None:
+            responsible_node = NodeInfo(id=node.id, address=node.address)
+        
+        if responsible_node.address == node.address:
+            node.storage.delete(key)
+            return None
+        
+        channel = grpc.insecure_channel(responsible_node.address)
+        stub = ChordServiceStub(channel)
+        
+        try:
+            stub.Delete(Key(key=key), timeout=TIMEOUT)
+            channel.close()
+            return None
+            
+        except grpc.RpcError as e:
+            channel.close()
+            logger.error(f"RPC error deleting key {key}: {e}")
+            return grpc.StatusCode.INTERNAL
+            
+    except Exception as e:
+        logger.error(f"Error deleting key {key}: {e}")
         return grpc.StatusCode.INTERNAL
