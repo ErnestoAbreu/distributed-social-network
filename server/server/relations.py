@@ -18,8 +18,14 @@ class RelationsRepository:
     def __init__(self, node):
         self.node = node
 
+    def create_following_key(self, username: str) -> str:
+        return os.path.join('User', username.lower(), 'Following')
+    
+    def create_followers_key(self, username: str) -> str:
+        return os.path.join('User', username.lower(), 'Followers')
+
     def load_following(self, username):
-        path = os.path.join('User', username.lower(), 'Following')
+        path = self.create_following_key(username)
         user_following, error = load(self.node, path, UserFollowing())
 
         following = []
@@ -37,7 +43,7 @@ class RelationsRepository:
         return following, None
 
     def load_followers(self, username):
-        path = os.path.join('User', username.lower(), 'Followers')
+        path = self.create_followers_key(username)
         user_followers, error = load(self.node, path, UserFollowers())
 
         followers = []
@@ -55,7 +61,7 @@ class RelationsRepository:
         return followers, None
 
     def add_to_following(self, username, followed_username):
-        path = os.path.join('User', username.lower(), 'Following')
+        path = self.create_following_key(username)
         user_following, error = self.load_following(username)
 
         following = []
@@ -76,7 +82,7 @@ class RelationsRepository:
         return False, None
 
     def remove_from_following(self, username, unfollowed_username):
-        path = os.path.join('User', username.lower(), 'Following')
+        path = self.create_following_key(username)
         user_following, error = self.load_following(username)
 
         following = []
@@ -97,7 +103,7 @@ class RelationsRepository:
         return False, None
 
     def add_to_followers(self, username, follower_username):
-        path = os.path.join('User', username.lower(), 'Followers')
+        path = self.create_followers_key(username)
         user_followers, error = self.load_followers(username)
 
         followers = []
@@ -118,7 +124,7 @@ class RelationsRepository:
         return False, None
 
     def remove_from_followers(self, username, unfollower_username):
-        path = os.path.join('User', username.lower(), 'Followers')
+        path = self.create_followers_key(username)
         user_followers, error = self.load_followers(username)
 
         followers = []
@@ -131,7 +137,7 @@ class RelationsRepository:
             error = save(self.node, path, UserFollowers(followers=followers))
 
             if error:
-                logger.error(f'Failed to save followers {error}')
+                logger.error(f'Failed to save followers list {error}')
                 return False, grpc.StatusCode.INTERNAL
 
             return True, None
@@ -159,20 +165,17 @@ class RelationsService(RelationsServiceServicer):
         if not exists:
             return FollowResponse(success=False, message='User to follow not found')
 
-        ok, error = self.relations_repo.add_to_following(
-            username, followed_username)
+        ok, error = self.relations_repo.add_to_following(username, followed_username)
+
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          f'Failed to follow user {followed_username}: {error}')
+            context.abort(grpc.StatusCode.INTERNAL, f'Failed to follow user {followed_username}: {error}')
 
         if not ok:
             return FollowResponse(success=False, message=f'User {username} already follows {followed_username}')
 
-        ok, error = self.relations_repo.add_to_followers(
-            followed_username, username)
+        ok, error = self.relations_repo.add_to_followers(followed_username, username)
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          f'Failed to follow user {followed_username}: {error}')
+            context.abort(grpc.StatusCode.INTERNAL, f'Failed to follow user {followed_username}: {error}')
 
         if not ok:
             return FollowResponse(success=False, message=f'User {username} already follows {followed_username}')
@@ -194,20 +197,16 @@ class RelationsService(RelationsServiceServicer):
         if not exists:
             return UnfollowResponse(success=False, message='User to unfollow not found')
 
-        ok, error = self.relations_repo.remove_from_following(
-            username, unfollowed_username)
+        ok, error = self.relations_repo.remove_from_following(username, unfollowed_username)
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          f'Failed to unfollow user {unfollowed_username}: {error}')
+            context.abort(grpc.StatusCode.INTERNAL, f'Failed to unfollow user {unfollowed_username}: {error}')
 
         if not ok:
             return UnfollowResponse(success=False, message=f'User {username} not follows {unfollowed_username}')
 
-        ok, error = self.relations_repo.remove_from_followers(
-            unfollowed_username, username)
+        ok, error = self.relations_repo.remove_from_followers(unfollowed_username, username)
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          f'Failed to unfollow user {unfollowed_username}: {error}')
+            context.abort(grpc.StatusCode.INTERNAL, f'Failed to unfollow user {unfollowed_username}: {error}')
 
         if not ok:
             return UnfollowResponse(success=False, message=f'User {username} not follows {unfollowed_username}')
@@ -223,8 +222,7 @@ class RelationsService(RelationsServiceServicer):
 
         following, error = self.relations_repo.load_following(username)
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          f'Failed to load following list: {error}')
+            context.abort(grpc.StatusCode.INTERNAL, f'Failed to load following list: {error}')
 
         return GetFollowingResponse(following=following)
 
@@ -236,19 +234,20 @@ class RelationsService(RelationsServiceServicer):
             context.abort(grpc.StatusCode.NOT_FOUND, 'User not found')
 
         followers, error = self.relations_repo.load_followers(username)
+
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          f'Failed to load followers list: {error}')
+            context.abort(grpc.StatusCode.INTERNAL, f'Failed to load followers list: {error}')
 
         return GetFollowersResponse(followers=followers)
 
 
 def start_relations_service(addr, relations_repo: RelationsRepository, auth_repo: AuthRepository, max_workers: int = 10):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    add_RelationsServiceServicer_to_server(
-        RelationsService(relations_repo, auth_repo), server)
+    add_RelationsServiceServicer_to_server(RelationsService(relations_repo, auth_repo), server)
     server.add_insecure_port(addr)
     server.start()
+
     port = str(addr).split(':')
     logger.info(f'Relations service started on port {port[1]}')
+
     server.wait_for_termination()

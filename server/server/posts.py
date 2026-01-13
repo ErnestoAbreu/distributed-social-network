@@ -188,7 +188,7 @@ class PostService(PostServiceServicer):
             context.abort(grpc.StatusCode.NOT_FOUND, 'Original post not found')
 
         post_id = str(time.time_ns())
-        iso_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        iso_timestamp = core.get_time()
         post = Post(post_id=post_id, user_id=user_id, content=original_post.content, timestamp=iso_timestamp, is_repost=True,
                     original_post_id=original_post.post_id, original_post_user_id=original_post.user_id, original_post_timestamp=original_post.timestamp)
 
@@ -200,8 +200,7 @@ class PostService(PostServiceServicer):
         error = self.post_repo.add_to_posts_list(post_id, user_id)
 
         if error:
-            context.abort(grpc.StatusCode.INTERNAL,
-                          'Failed to add repost to user posts')
+            context.abort(grpc.StatusCode.INTERNAL, 'Failed to add repost to user posts')
 
         return RepostResponse(success=True, message='Post reposted successfully')
 
