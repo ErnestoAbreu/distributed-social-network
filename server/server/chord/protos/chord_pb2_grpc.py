@@ -34,8 +34,8 @@ class ChordServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.FindSuccessor = channel.unary_unary(
-                '/chord.ChordService/FindSuccessor',
+        self.GetSuccessor = channel.unary_unary(
+                '/chord.ChordService/GetSuccessor',
                 request_serializer=chord__pb2.ID.SerializeToString,
                 response_deserializer=chord__pb2.NodeInfo.FromString,
                 _registered_method=True)
@@ -54,15 +54,15 @@ class ChordServiceStub(object):
                 request_serializer=chord__pb2.Empty.SerializeToString,
                 response_deserializer=chord__pb2.Empty.FromString,
                 _registered_method=True)
-        self.Put = channel.unary_unary(
-                '/chord.ChordService/Put',
-                request_serializer=chord__pb2.KeyValue.SerializeToString,
-                response_deserializer=chord__pb2.Empty.FromString,
-                _registered_method=True)
         self.Get = channel.unary_unary(
                 '/chord.ChordService/Get',
                 request_serializer=chord__pb2.Key.SerializeToString,
                 response_deserializer=chord__pb2.Value.FromString,
+                _registered_method=True)
+        self.Put = channel.unary_unary(
+                '/chord.ChordService/Put',
+                request_serializer=chord__pb2.KeyValue.SerializeToString,
+                response_deserializer=chord__pb2.Empty.FromString,
                 _registered_method=True)
         self.Delete = channel.unary_unary(
                 '/chord.ChordService/Delete',
@@ -74,7 +74,7 @@ class ChordServiceStub(object):
 class ChordServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def FindSuccessor(self, request, context):
+    def GetSuccessor(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -98,13 +98,13 @@ class ChordServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Put(self, request, context):
+    def Get(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Get(self, request, context):
+    def Put(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -119,8 +119,8 @@ class ChordServiceServicer(object):
 
 def add_ChordServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'FindSuccessor': grpc.unary_unary_rpc_method_handler(
-                    servicer.FindSuccessor,
+            'GetSuccessor': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSuccessor,
                     request_deserializer=chord__pb2.ID.FromString,
                     response_serializer=chord__pb2.NodeInfo.SerializeToString,
             ),
@@ -139,15 +139,15 @@ def add_ChordServiceServicer_to_server(servicer, server):
                     request_deserializer=chord__pb2.Empty.FromString,
                     response_serializer=chord__pb2.Empty.SerializeToString,
             ),
-            'Put': grpc.unary_unary_rpc_method_handler(
-                    servicer.Put,
-                    request_deserializer=chord__pb2.KeyValue.FromString,
-                    response_serializer=chord__pb2.Empty.SerializeToString,
-            ),
             'Get': grpc.unary_unary_rpc_method_handler(
                     servicer.Get,
                     request_deserializer=chord__pb2.Key.FromString,
                     response_serializer=chord__pb2.Value.SerializeToString,
+            ),
+            'Put': grpc.unary_unary_rpc_method_handler(
+                    servicer.Put,
+                    request_deserializer=chord__pb2.KeyValue.FromString,
+                    response_serializer=chord__pb2.Empty.SerializeToString,
             ),
             'Delete': grpc.unary_unary_rpc_method_handler(
                     servicer.Delete,
@@ -166,7 +166,7 @@ class ChordService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def FindSuccessor(request,
+    def GetSuccessor(request,
             target,
             options=(),
             channel_credentials=None,
@@ -179,7 +179,7 @@ class ChordService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/chord.ChordService/FindSuccessor',
+            '/chord.ChordService/GetSuccessor',
             chord__pb2.ID.SerializeToString,
             chord__pb2.NodeInfo.FromString,
             options,
@@ -274,33 +274,6 @@ class ChordService(object):
             _registered_method=True)
 
     @staticmethod
-    def Put(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/chord.ChordService/Put',
-            chord__pb2.KeyValue.SerializeToString,
-            chord__pb2.Empty.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def Get(request,
             target,
             options=(),
@@ -317,6 +290,33 @@ class ChordService(object):
             '/chord.ChordService/Get',
             chord__pb2.Key.SerializeToString,
             chord__pb2.Value.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Put(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chord.ChordService/Put',
+            chord__pb2.KeyValue.SerializeToString,
+            chord__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

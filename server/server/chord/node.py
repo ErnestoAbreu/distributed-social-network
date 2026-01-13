@@ -10,7 +10,7 @@ from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_C
 from .utils.hashing import hash_key
 from .utils.config import *
 from .storage import Storage
-from .failure import FailureDetector
+from .threads.failure import FailureDetector
 
 logger = logging.getLogger('socialnet.server.chord.node')
 
@@ -25,11 +25,11 @@ class ChordNode(ChordServiceServicer):
 
 
     # ---------------- Chord RPCs ----------------
-    def FindSuccessor(self, request, context) -> NodeInfo:
+    def GetSuccessor(self, request, context) -> NodeInfo:
         try:
             return self.find_successor(request.id)
         except Exception as e:
-            logger.error(f"FindSuccessor failed: {e}")
+            logger.error(f"finding successor failed: {e}")
             return NodeInfo(id=self.successor.id, address=self.successor.address)
 
 
@@ -103,51 +103,19 @@ class ChordNode(ChordServiceServicer):
         except:
             return self.successor
 
-    def closest_preceding_node(self, id_):
-        for i in reversed(range(M_BITS)):
-            f = self.finger.table[i]
-            if f and f.address != self.address and self.id < f.id < id_:
-                return f
-        return NodeInfo(id=self.id, address=self.address)
-
-
-    def stabilize(self):
-        if not self.successor or self.successor.address == self.address:
-            return
-        
-        try:
-            channel = grpc.insecure_channel(self.successor.address)
-            stub = ChordServiceStub(channel)
-            
-            x = stub.GetPredecessor(Empty(), timeout=2)
-            if x and x.id != 0 and self.id < x.id < self.successor.id:
-                self.successor = x
-            
-            stub.Notify(NodeInfo(id=self.id, address=self.address), timeout=2)
-            channel.close()
-        except Exception as e:
-            logger.warning(f"Stabilize failed: {e}")
-
-
-    def check_predecessor(self):
-        if self.predecessor:
-            if not self.ping_node(self.predecessor):
-                logger.info(f"Predecessor {self.predecessor.address} failed, removing")
-                self.predecessor = None
-
-    def ping_node(self, node):
-        """Ping a node to check if it's alive"""
-        if not node or node.address == self.address:
-            return True
-        try:
-            channel = grpc.insecure_channel(node.address)
-            from .protos.chord_pb2_grpc import ChordServiceStub
-            stub = ChordServiceStub(channel)
-            stub.Ping(Empty(), timeout=2)
-            channel.close()
-            return True
-        except:
-            return False
+    # def ping_node(self, node):
+    #     """Ping a node to check if it's alive"""
+    #     if not node or node.address == self.address:
+    #         return True
+    #     try:
+    #         channel = grpc.insecure_channel(node.address)
+    #         from .protos.chord_pb2_grpc import ChordServiceStub
+    #         stub = ChordServiceStub(channel)
+    #         stub.Ping(Empty(), timeout=2)
+    #         channel.close()
+    #         return True
+    #     except:
+    #         return False
 
     def serve(self):
         logger.info(f'Starting Chord node at {self.address} with ID {self.id}')
@@ -157,10 +125,3 @@ class ChordNode(ChordServiceServicer):
         server.add_insecure_port(self.address)
 
         server.start()
-
-        FailureDetector(self, PING_INTERVAL).start()
-
-        while True:
-            self.stabilize()
-            self.check_predecessor()
-            time.sleep(STABILIZE_INTERVAL)
