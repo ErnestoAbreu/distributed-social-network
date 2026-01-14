@@ -1,11 +1,8 @@
 import logging
 import grpc
 import threading
-import time
 from concurrent import futures
 
-from server.server.chord.threads.check_predecessor import CheckPredecessor
-from server.server.chord.threads.fix_finger import FixFinger
 from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.utils.utils import is_in_interval
 
@@ -15,7 +12,6 @@ from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_C
 from .utils.hashing import hash_key
 from .utils.config import *
 from .storage import Storage
-from .threads.failure import FailureDetector
 
 logger = logging.getLogger('socialnet.server.chord.node')
 
@@ -47,8 +43,15 @@ class ChordNode(ChordServiceServicer):
 
 
     def UpdatePredecessor(self, request, context) -> Empty:
-        if not self.predecessor or request.id > self.predecessor.id:
-            self.predecessor = request
+        try:
+            with self.lock:
+                # Update predecessor if we don't have one, or if the request
+                # is between our current predecessor and ourselves.
+                if (not self.predecessor) or is_in_interval(request.id, self.predecessor.id, self.id):
+                    self.predecessor = request
+                    logger.debug(f"UpdatePredecessor: predecessor set to {request.id}@{request.address}")
+        except Exception as e:
+            logger.error(f"UpdatePredecessor error: {e}")
         return Empty()
 
 
@@ -92,18 +95,25 @@ class ChordNode(ChordServiceServicer):
         
 
     def find_successor(self, key) -> NodeInfo:
-        succ = self.finger[0] or NodeInfo(id=self.id, address=self.address)
+        # read successor atomically
+        with self.lock:
+            succ = self.finger[0] or NodeInfo(id=self.id, address=self.address)
 
-        # If we are the only node, return ourselves
+        logger.debug(f"find_successor: key={key} my_id={self.id} succ={getattr(succ,'id',None)}@{getattr(succ,'address',None)}")
+
+        # If we are the only node (successor is self), return ourselves
         if succ.address == self.address:
+            logger.debug("find_successor: single node ring -> return self")
             return succ
         
         # If id is between us and our successor (handles wrap-around)
         if is_in_interval(key, self.id, succ.id, inclusive_end=True):
+            logger.debug(f"find_successor: key in ({self.id}, {succ.id}] -> return succ {succ.address}")
             return succ
         
         # Otherwise, ask the closest preceding node
         n0 = self.closest_preceding_node(key)
+        logger.debug(f"find_successor: closest_preceding_node -> {n0.id}@{n0.address}")
         if n0.address == self.address:
             # We are the closest, return our successor
             return succ
@@ -114,6 +124,7 @@ class ChordNode(ChordServiceServicer):
             stub = ChordServiceStub(channel)
             result = stub.GetSuccessor(ID(id=key), timeout=TIMEOUT)
             channel.close()
+            logger.debug(f"find_successor: remote returned {result.id}@{result.address}")
             return result
         except Exception as e:
             logger.warning(f"Remote find_successor failed: {e}")
@@ -153,9 +164,6 @@ class ChordNode(ChordServiceServicer):
 
         # Start maintenance threads
         Stabilizer(self, STABILIZE_INTERVAL).start()
-        FailureDetector(self, PING_INTERVAL).start()
-        CheckPredecessor(self, STABILIZE_INTERVAL).start()
-        FixFinger(self, STABILIZE_INTERVAL).start()
 
         server.start()
         logger.info('Chord gRPC server started')

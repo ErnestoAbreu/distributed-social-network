@@ -21,8 +21,8 @@ Write-Host "Imagen del servidor construida" -ForegroundColor Green
 
 # Paso 3: Desplegar nodo (nodo-1)
 Write-Host ""
-Write-Host "Paso 3: Desplegando NODO (node-1)..." -ForegroundColor Yellow
-docker run -d --name node-1 --hostname node-1 --network social-network --network-alias socialnet_server social-server:latest
+Write-Host "Paso 3: Desplegando NODO (node-0)..." -ForegroundColor Yellow
+docker run -d --name node-0 --hostname node-0 --network social-network --network-alias socialnet_server social-server:latest
 
 Write-Host "Esperando 5 segundos para que el nodo se estabilice..." -ForegroundColor Gray
 Start-Sleep -Seconds 5
@@ -32,7 +32,7 @@ Write-Host "Nodo desplegado" -ForegroundColor Green
 Write-Host ""
 Write-Host "Paso 4: Desplegando nodos adicionales..." -ForegroundColor Yellow
 
-$nodes = 2..3
+$nodes = 1..4
 foreach ($i in $nodes) {
         Write-Host "Desplegando node-$i..." -ForegroundColor Cyan
         docker run -d `
