@@ -223,7 +223,7 @@ def show_post(post):
 
     if post.is_repost:
         repost_time = format_date_time(post.timestamp)
-        original_time = format_date_time(post.original_message_timestamp)
+        original_time = format_date_time(post.original_post_timestamp)
         html = f"""
         <div style="background-color:#2a2f3a; padding:16px; margin:12px 0; border-radius:12px; border-left:4px solid #888; font-family:sans-serif;">
             <div style="font-size:1.1em; color:gray; margin-bottom:8px;">
@@ -232,7 +232,7 @@ def show_post(post):
             <div style="background-color:#1c1f27; padding:12px; border-radius:8px;">
                 <table style="width:100%; border-collapse: collapse; border: none;">
                     <tr style="border: none;">
-                        <td style="border: none; padding: 0; margin: 0; color:white; font-weight:bold; font-size:1.0em;">{post.original_message_user_id}</td>
+                        <td style="border: none; padding: 0; margin: 0; color:white; font-weight:bold; font-size:1.0em;">{post.original_post_user_id}</td>
                         <td style="border: none; padding: 0; margin: 0; text-align:right; color:gray;">
                             <small>from {original_time}</small>
                         </td>

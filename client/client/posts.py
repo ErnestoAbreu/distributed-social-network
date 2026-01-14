@@ -35,7 +35,7 @@ async def get_posts(username, token, request=True):
         nposts = []
         for post in response.posts:
             new_post = models_pb2.Post(post_id=post.post_id, user_id=post.user_id, content=post.content,
-                                       timestamp=post.timestamp, is_respost=post.is_repost, original_post_id=post.original_post_id)
+                                       timestamp=post.timestamp, is_repost=post.is_repost, original_post_id=post.original_post_id)
             nposts.append(new_post)
 
         serialized_value = [base64.b64encode(
