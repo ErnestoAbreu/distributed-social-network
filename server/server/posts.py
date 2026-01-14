@@ -197,11 +197,6 @@ class PostService(PostServiceServicer):
         if error:
             context.abort(grpc.StatusCode.INTERNAL, 'Failed to save repost')
 
-        error = self.post_repo.add_to_posts_list(post_id, user_id)
-
-        if error:
-            context.abort(grpc.StatusCode.INTERNAL, 'Failed to add repost to user posts')
-
         return RepostResponse(success=True, message='Post reposted successfully')
 
 

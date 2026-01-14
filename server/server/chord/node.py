@@ -49,7 +49,7 @@ class ChordNode(ChordServiceServicer):
                 # is between our current predecessor and ourselves.
                 if (not self.predecessor) or is_in_interval(request.id, self.predecessor.id, self.id):
                     self.predecessor = request
-                    logger.debug(f"UpdatePredecessor: predecessor set to {request.id}@{request.address}")
+                    logger.info(f"UpdatePredecessor: predecessor set to {request.id}@{request.address}")
         except Exception as e:
             logger.error(f"UpdatePredecessor error: {e}")
         return Empty()
@@ -99,21 +99,21 @@ class ChordNode(ChordServiceServicer):
         with self.lock:
             succ = self.finger[0] or NodeInfo(id=self.id, address=self.address)
 
-        logger.debug(f"find_successor: key={key} my_id={self.id} succ={getattr(succ,'id',None)}@{getattr(succ,'address',None)}")
+        logger.info(f"find_successor: key={key} my_id={self.id} succ={getattr(succ,'id',None)}@{getattr(succ,'address',None)}")
 
         # If we are the only node (successor is self), return ourselves
         if succ.address == self.address:
-            logger.debug("find_successor: single node ring -> return self")
+            logger.info("find_successor: single node ring -> return self")
             return succ
         
         # If id is between us and our successor (handles wrap-around)
         if is_in_interval(key, self.id, succ.id, inclusive_end=True):
-            logger.debug(f"find_successor: key in ({self.id}, {succ.id}] -> return succ {succ.address}")
+            logger.info(f"find_successor: key in ({self.id}, {succ.id}] -> return succ {succ.address}")
             return succ
         
         # Otherwise, ask the closest preceding node
         n0 = self.closest_preceding_node(key)
-        logger.debug(f"find_successor: closest_preceding_node -> {n0.id}@{n0.address}")
+        logger.info(f"find_successor: closest_preceding_node -> {n0.id}@{n0.address}")
         if n0.address == self.address:
             # We are the closest, return our successor
             return succ
@@ -124,7 +124,7 @@ class ChordNode(ChordServiceServicer):
             stub = ChordServiceStub(channel)
             result = stub.GetSuccessor(ID(id=key), timeout=TIMEOUT)
             channel.close()
-            logger.debug(f"find_successor: remote returned {result.id}@{result.address}")
+            logger.info(f"find_successor: remote returned {result.id}@{result.address}")
             return result
         except Exception as e:
             logger.warning(f"Remote find_successor failed: {e}")

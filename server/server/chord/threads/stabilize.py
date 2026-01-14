@@ -31,7 +31,7 @@ class Stabilizer(threading.Thread):
 
             self.logger.info("Finger table: %s", ", ".join(entries))
         except Exception as e:
-            self.logger.debug(f"could not log finger table: {e}")
+            self.logger.info(f"could not log finger table: {e}")
 
     def run(self):
         """Periodically stabilize finger table and predecessor"""
@@ -76,7 +76,7 @@ class Stabilizer(threading.Thread):
                             with self.node.lock:
                                 self.node.finger[i] = succ_i
                         except Exception as ie:
-                            self.logger.debug(f"failed to update finger {i}: {ie}")
+                            self.logger.info(f"failed to update finger {i}: {ie}")
                 except Exception as e:
                     self.logger.warning(f"updating finger table failed: {e}")
                     
@@ -87,7 +87,7 @@ class Stabilizer(threading.Thread):
                         self.log_finger_table()
                         self.last_log_time = now
                 except Exception as e:
-                    self.logger.debug(f"could not evaluate log throttle: {e}")
+                    self.logger.info(f"could not evaluate log throttle: {e}")
 
             except Exception as e:
                 self.logger.error(f"Stabilization loop error: {e}")
