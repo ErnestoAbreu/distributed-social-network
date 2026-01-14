@@ -47,15 +47,17 @@ def run_services():
     logger.info('gRPC services listening in ports 50000, 50001, 50002')
     
     logger.info('Discovering existing Chord nodes...')
-
+    
     existing_nodes = discover_nodes(node.address)
     
     if existing_nodes:
         if join_ring(node, existing_nodes):
             logger.info('Joined existing Chord ring')
         else:
-            raise RuntimeError('Failed to join existing Chord ring')
+            logger.error('Failed to join existing Chord ring')
+            sys.exit(1)
     else:
+        logger.info('No existing nodes discovered, creating new ring')
         node.join(None)
     
     node.serve()

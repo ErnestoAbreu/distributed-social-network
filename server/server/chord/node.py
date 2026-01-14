@@ -4,7 +4,12 @@ import threading
 import time
 from concurrent import futures
 
-from .protos.chord_pb2 import NodeInfo, Empty, Value
+from server.server.chord.threads.check_predecessor import CheckPredecessor
+from server.server.chord.threads.fix_finger import FixFinger
+from server.server.chord.threads.stabilize import Stabilizer
+from server.server.chord.utils.utils import is_in_interval
+
+from .protos.chord_pb2 import ID, NodeInfo, Empty, Value
 from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_ChordServiceServicer_to_server
 
 from .utils.hashing import hash_key
@@ -18,10 +23,12 @@ class ChordNode(ChordServiceServicer):
     def __init__(self, address):
         self.address = address
         self.id = hash_key(address, M_BITS)
-        self.successor = None
         self.predecessor = None
         self.storage = Storage()
         self.lock = threading.Lock()
+
+        self.finger = [None] * M_BITS
+        self.next_finger = 0
 
 
     # ---------------- Chord RPCs ----------------
@@ -30,13 +37,13 @@ class ChordNode(ChordServiceServicer):
             return self.find_successor(request.id)
         except Exception as e:
             logger.error(f"finding successor failed: {e}")
-            return NodeInfo(id=self.successor.id, address=self.successor.address)
+            return NodeInfo(id=self.id, address=self.address)
 
 
     def GetPredecessor(self, request, context) -> NodeInfo:
         if self.predecessor:
             return NodeInfo(id=self.predecessor.id, address=self.predecessor.address)
-        return NodeInfo(id=self.successor.id, address=self.successor.address)
+        return NodeInfo(id=self.id, address=self.address)
 
 
     def UpdatePredecessor(self, request, context) -> Empty:
@@ -66,56 +73,76 @@ class ChordNode(ChordServiceServicer):
     # ---------------- Chord Logic ----------------
     def join(self, known_node):
         if known_node:
-            successor = known_node.find_successor(self.id)
+            logger.info(f"Joining Chord ring via node {known_node.address}")
+
+            channel = grpc.insecure_channel(known_node.address)
+            stub = ChordServiceStub(channel)
+            successor = stub.GetSuccessor(ID(id=self.id), timeout=TIMEOUT)
+            channel.close()
+
             if successor and successor.address:
-                self.successor = successor
+                self.finger[0] = successor
             else:
                 logger.error('find_successor returned invalid result')
-                self.successor = NodeInfo(id=self.id, address=self.address)
+                logger.info("Creating new Chord ring")
+                self.finger[0] = NodeInfo(id=self.id, address=self.address)
         else:
-            self.successor = NodeInfo(id=self.id, address=self.address)
+            logger.info("Creating new Chord ring")
+            self.finger[0] = NodeInfo(id=self.id, address=self.address)
         
 
     def find_successor(self, key) -> NodeInfo:
+        succ = self.finger[0] or NodeInfo(id=self.id, address=self.address)
+
         # If we are the only node, return ourselves
-        if self.successor.address == self.address:
-            return self.successor
+        if succ.address == self.address:
+            return succ
         
-        # If id is between us and our successor
-        if self.id < key <= self.successor.id:
-            return self.successor
+        # If id is between us and our successor (handles wrap-around)
+        if is_in_interval(key, self.id, succ.id, inclusive_end=True):
+            return succ
         
         # Otherwise, ask the closest preceding node
         n0 = self.closest_preceding_node(key)
         if n0.address == self.address:
             # We are the closest, return our successor
-            return self.successor
+            return succ
         
         # Remote call to find successor
         try:
             channel = grpc.insecure_channel(n0.address)
-            from .protos.chord_pb2_grpc import ChordServiceStub
-            from .protos.chord_pb2 import ID
             stub = ChordServiceStub(channel)
-            result = stub.FindSuccessor(ID(id=key), timeout=2)
+            result = stub.GetSuccessor(ID(id=key), timeout=TIMEOUT)
             channel.close()
             return result
-        except:
-            return self.successor
+        except Exception as e:
+            logger.warning(f"Remote find_successor failed: {e}")
+            return succ
 
-    # def ping_node(self, node):
-    #     """Ping a node to check if it's alive"""
-    #     if not node or node.address == self.address:
-    #         return True
-    #     try:
-    #         channel = grpc.insecure_channel(node.address)
-    #         from .protos.chord_pb2_grpc import ChordServiceStub
-    #         stub = ChordServiceStub(channel)
-    #         stub.Ping(Empty(), timeout=2)
-    #         channel.close()
-    #         return True
-    #     except:
-    #         return False
+    def closest_preceding_node(self, key) -> NodeInfo:
+        """Find the closest finger preceding key"""
+        with self.lock:
+            
+            for i in range(M_BITS - 1, -1, -1):
+                if self.finger[i] and is_in_interval(self.finger[i].id, self.id, key):
+                    return self.finger[i]
+
+            return NodeInfo(id=self.id, address=self.address)
+
+
+    def ping_node(self, node):
+        """Ping a node to check if it's alive"""
+        if not node or node.address == self.address:
+            return True
+        try:
+            channel = grpc.insecure_channel(node.address)
+            stub = ChordServiceStub(channel)
+            stub.Ping(Empty(), timeout=TIMEOUT)
+            channel.close()
+            return True
+        except Exception:
+            return False
+
 
     def serve(self):
         logger.info(f'Starting Chord node at {self.address} with ID {self.id}')
@@ -124,4 +151,12 @@ class ChordNode(ChordServiceServicer):
         add_ChordServiceServicer_to_server(self, server)
         server.add_insecure_port(self.address)
 
+        # Start maintenance threads
+        Stabilizer(self, STABILIZE_INTERVAL).start()
+        FailureDetector(self, PING_INTERVAL).start()
+        CheckPredecessor(self, STABILIZE_INTERVAL).start()
+        FixFinger(self, STABILIZE_INTERVAL).start()
+
         server.start()
+        logger.info('Chord gRPC server started')
+        server.wait_for_termination()
