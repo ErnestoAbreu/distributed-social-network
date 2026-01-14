@@ -68,7 +68,10 @@ if __name__ == '__main__':
     signal.signal(signalnum=signal.SIGINT, handler=exit_handler)
     signal.signal(signalnum=signal.SIGTERM, handler=exit_handler)
 
+    run_services()
+
     try:
-        run_services()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         exit_handler(None, None)

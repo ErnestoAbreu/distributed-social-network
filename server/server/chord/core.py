@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import grpc
 import logging
 
@@ -11,7 +11,7 @@ from .protos.chord_pb2_grpc import ChordServiceStub
 logger = logging.getLogger('socialnet.chord.core')
 
 def get_time():
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 def exists(node: ChordNode, key: str) -> tuple[bool, grpc.StatusCode | None]:
     """
