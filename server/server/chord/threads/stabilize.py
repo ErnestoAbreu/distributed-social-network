@@ -17,7 +17,7 @@ class Stabilizer(threading.Thread):
         self.logger = logging.getLogger('socialnet.server.chord.stabilize')
         self.last_log_time = 0
 
-    def log_finger_table(self):
+    def _log_finger_table(self):
         try:
             now = time.time()
             if now - self.last_log_time >= 30:
@@ -37,7 +37,7 @@ class Stabilizer(threading.Thread):
         except Exception as e:
             self.logger.info(f"could not log finger table: {e}")
 
-    def ping_node(self, node):
+    def _ping_node(self, node):
         """Check if a node is reachable"""
         if not node or not node.address:
             return False
@@ -51,25 +51,86 @@ class Stabilizer(threading.Thread):
             self.logger.warning(f"Node {node.address} unreachable: {e}")
             return False
 
-    def find_next_alive_successor(self):
+    def _find_next_alive_successor(self):
         """Find the next alive successor in the finger table"""
         with self.node.lock:
             fingers_copy = list(self.node.finger)
 
         for finger in fingers_copy:
             if finger and finger.address != self.node.address:
-                if self.ping_node(finger):
-                    return finger
+                if self._ping_node(finger):
+                    return 
+                
+        logging.warning(f"Node is isolated {self.node.address}, no alive successors found")
                 
         # If not alive successor, return self node itself
         return NodeInfo(id=self.node.id, address=self.node.address)
+    
+    def _fix_successor(self) -> bool:
+        """Check and fix the successor node"""
+        with self.node.lock:
+            successor = self.node.finger[0]
+
+        if not successor:
+            return False
+        
+         # Try getting successor's predecessor
+        try:
+            channel = grpc.insecure_channel(successor.address)
+            stub = ChordServiceStub(channel)
+            middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
+            channel.close()
+        except Exception as e:
+            self.logger.warning(f"Failed to get predecessor from {successor.address}: {e}")
+            return False
+
+        # Check if middle_node is our new successor
+        if middle_node.address and is_in_interval(middle_node.id, self.node.id, successor.id):
+            # Check if the reported predecessor is alive
+            if self._ping_node(middle_node):
+                with self.node.lock:
+                    self.node.finger[0] = middle_node
+                    successor = middle_node
+                    return True
+            else:
+                self.logger.warning(f"Reported predecessor {middle_node.address} is dead, ignoring")
+            
+        return False
+    
+    def _notify_successor(self):
+        with self.node.lock:
+            successor = self.node.finger[0]
+
+        if not successor:
+            return
+        
+        try:
+            channel = grpc.insecure_channel(successor.address)
+            stub = ChordServiceStub(channel)
+            stub.UpdatePredecessor(NodeInfo(id=self.node.id, address=self.node.address), timeout=TIMEOUT)
+            channel.close()
+        except Exception as e:
+            self.logger.warning(f"Failed to notify successor {successor.address}: {e}")
+
+    def _fix_finger_table(self):
+        try:
+            for i in range(M_BITS):
+                start = (self.node.id + (1 << i)) % (1 << M_BITS)
+                try:
+                    succ_i = self.node.find_successor(start)
+                    with self.node.lock:
+                        self.node.finger[i] = succ_i
+                except Exception as ie:
+                    self.logger.warning(f"failed to update finger {i}: {ie}")
+        except Exception as e:
+            self.logger.warning(f"updating finger table failed: {e}")
 
     def run(self):
         """Periodically stabilize finger table and predecessor"""
         while True:
             time.sleep(self.interval)
             try:
-                # Get successor's predecessor
+                # Get successor
                 with self.node.lock:
                     successor = self.node.finger[0]
 
@@ -77,69 +138,34 @@ class Stabilizer(threading.Thread):
                     continue
 
                 # Check if successor is alive before trying to contact it
-                if not self.ping_node(successor):
+                network_changed = False
+                if not self._ping_node(successor):
                     self.logger.warning(f"Successor {successor.address} is dead, finding new successor")
-                    new_successor = self.find_next_alive_successor()
+                    new_successor = self._find_next_alive_successor()
                     with self.node.lock:
                         self.node.finger[0] = new_successor
                         successor = new_successor
+                    network_changed = True
 
                     # If we are our own successor, skip stabilization
                     if successor.address == self.node.address:
                         self.logger.info("Single node in ring, skipping stabilization")
                         continue
                 
-                # Try getting successor's predecessor
-                try:
-                    channel = grpc.insecure_channel(successor.address)
-                    stub = ChordServiceStub(channel)
-                    response = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
-                    channel.close()
-                except grpc.RpcError as e:
-                    self.logger.warning(f"Failed to get predecessor from {successor.address}: {e}")
-                    continue
+                # Fix successor if needed
+                network_changed = network_changed or self._fix_successor() 
 
-                with self.node.lock:
-                    pred = self.node.predecessor
+                # Notify successor about ourselves        
+                self._notify_successor()                
 
-                # Check if we have a better successor
-                if response.address and is_in_interval(response.id, self.node.id, successor.id):
-                    # Check if the reported predecessor is alive
-                    if self.ping_node(response):
-                        with self.node.lock:
-                            self.node.finger[0] = response
-                            successor = response
-                    else:
-                        self.logger.warning(f"Reported predecessor {response.address} is dead, ignoring")
-
-                # Notify successor about ourselves
-                with self.node.lock:
-                    my_info = NodeInfo(id=self.node.id, address=self.node.address)
-                
-                try:
-                    channel = grpc.insecure_channel(successor.address)
-                    stub = ChordServiceStub(channel)
-                    stub.UpdatePredecessor(my_info, timeout=TIMEOUT)
-                    channel.close()
-                except grpc.RpcError as e:
-                    self.logger.warning(f"Failed to notify successor {successor.address}: {e}")
+                if not network_changed:
                     continue
 
                 # Recompute finger table entries because network changed
-                try:
-                    for i in range(M_BITS):
-                        start = (self.node.id + (1 << i)) % (1 << M_BITS)
-                        try:
-                            succ_i = self.node.find_successor(start)
-                            with self.node.lock:
-                                self.node.finger[i] = succ_i
-                        except Exception as ie:
-                            self.logger.info(f"failed to update finger {i}: {ie}")
-                except Exception as e:
-                    self.logger.warning(f"updating finger table failed: {e}")
+                self._fix_finger_table()
                     
                 # Log the current finger table for debugging/visibility (throttled to 30s)
-                self.log_finger_table()
+                self._log_finger_table()
                 
             except Exception as e:
                 self.logger.error(f"Stabilization loop error: {e}")
