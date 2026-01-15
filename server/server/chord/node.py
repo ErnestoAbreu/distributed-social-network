@@ -7,7 +7,7 @@ from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.threads.replicator import Replicator
 from server.server.chord.utils.utils import is_in_interval
 
-from .protos.chord_pb2 import ID, NodeInfo, Empty, Value, KeyValue, KeyValueList
+from .protos.chord_pb2 import ID, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult
 from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_ChordServiceServicer_to_server
 
 from .utils.hashing import hash_key
@@ -43,33 +43,36 @@ class ChordNode(ChordServiceServicer):
             return NodeInfo(id=self.predecessor.id, address=self.predecessor.address)
         return NodeInfo(id=self.id, address=self.address)
 
-
     def UpdatePredecessor(self, request, context) -> Empty:
         try:
+            predecessor_changed = False
             with self.lock:
                 # Update predecessor if we don't have one, or if the request
                 # is between our current predecessor and ourselves.
                 if (not self.predecessor) or is_in_interval(request.id, self.predecessor.id, self.id):
+                    predecessor_changed = (not self.predecessor) or self.predecessor.id != request.id or self.predecessor.address != request.address
+
                     self.predecessor = request
                     logger.info(f"UpdatePredecessor: predecessor set to {request.id}@{request.address}")
+
+            # Kick off a reconciliation pass with our predecessor (non-blocking).
+            if predecessor_changed and self.replicator and request and request.address and request.address != self.address:
+                threading.Thread(target=self.replicator.delegate_to_predecessor, args=(request,), daemon=True,).start()
+
         except Exception as e:
             logger.error(f"UpdatePredecessor error: {e}")
         return Empty()
 
-
     def Ping(self, request, context):
         return Empty()
-
 
     def Get(self, request, context):
         val = self.storage.get(request.key)
         return Value(value=val if val else "")
 
-
     def Put(self, request, context):
         self.storage.put(request.key, request.value)
         return Empty()
-
 
     def Delete(self, request, context):
         self.storage.delete(request.key)
@@ -84,6 +87,40 @@ class ChordNode(ChordServiceServicer):
         except Exception as e:
             logger.error(f"GetAllKeys error: {e}")
             return KeyValueList(items=[])
+
+    def SetPartition(self, request, context):
+        try:
+            if not self.replicator:
+                return Ack(ok=False)
+
+            ok = self.replicator.set_partition(
+                dict(request.values),
+                dict(request.versions),
+                dict(request.removed),
+            )
+            return Ack(ok=bool(ok))
+        except Exception as e:
+            logger.error(f"SetPartition error: {e}")
+            return Ack(ok=False)
+
+    def ResolveData(self, request, context):
+        try:
+            if not self.replicator:
+                return PartitionResult(ok=False, partition=Partition())
+
+            res_values, res_versions, res_removed = self.replicator.resolve_data(
+                dict(request.values),
+                dict(request.versions),
+                dict(request.removed),
+            )
+
+            return PartitionResult(
+                ok=True,
+                partition=Partition(values=res_values, versions=res_versions, removed=res_removed),
+            )
+        except Exception as e:
+            logger.error(f"ResolveData error: {e}")
+            return PartitionResult(ok=False, partition=Partition())
 
     # ---------------- Chord Logic ----------------
     def join(self, known_node):
