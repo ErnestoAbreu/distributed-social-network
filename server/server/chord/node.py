@@ -4,9 +4,10 @@ import threading
 from concurrent import futures
 
 from server.server.chord.threads.stabilize import Stabilizer
+from server.server.chord.threads.replicator import Replicator
 from server.server.chord.utils.utils import is_in_interval
 
-from .protos.chord_pb2 import ID, NodeInfo, Empty, Value
+from .protos.chord_pb2 import ID, NodeInfo, Empty, Value, KeyValue, KeyValueList
 from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_ChordServiceServicer_to_server
 
 from .utils.hashing import hash_key
@@ -26,6 +27,7 @@ class ChordNode(ChordServiceServicer):
         self.finger = [None] * M_BITS
         self.next_finger = 0
 
+        self.replicator = None
 
     # ---------------- Chord RPCs ----------------
     def GetSuccessor(self, request, context) -> NodeInfo:
@@ -73,6 +75,16 @@ class ChordNode(ChordServiceServicer):
         self.storage.delete(request.key)
         return Empty()
 
+    def GetAllKeys(self, request, context):
+        try:
+            items = self.storage.items()
+            kv_list = [KeyValue(key=k, value=v) for k, v in items.items()]
+            logger.debug(f"GetAllKeys: returning {len(kv_list)} items")
+            return KeyValueList(items=kv_list)
+        except Exception as e:
+            logger.error(f"GetAllKeys error: {e}")
+            return KeyValueList(items=[])
+
     # ---------------- Chord Logic ----------------
     def join(self, known_node):
         if known_node:
@@ -85,6 +97,11 @@ class ChordNode(ChordServiceServicer):
 
             if successor and successor.address:
                 self.finger[0] = successor
+                logger.info(f"Successfully joined ring, successor is {successor.address}")
+
+                # Fetch replicas from successor after joining
+                if self.replicator:
+                    self.replicator.fetch_replicas_from_successor()
             else:
                 logger.error('find_successor returned invalid result')
                 logger.info("Creating new Chord ring")
@@ -164,6 +181,8 @@ class ChordNode(ChordServiceServicer):
 
         # Start maintenance threads
         Stabilizer(self, STABILIZE_INTERVAL).start()
+        self.replicator = Replicator(self, REPLICATION_INTERVAL)
+        self.replicator.start()
 
         server.start()
         logger.info('Chord gRPC server started')
