@@ -34,8 +34,8 @@ class ChordServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.GetSuccessor = channel.unary_unary(
-                '/chord.ChordService/GetSuccessor',
+        self.FindSuccessor = channel.unary_unary(
+                '/chord.ChordService/FindSuccessor',
                 request_serializer=chord__pb2.ID.SerializeToString,
                 response_deserializer=chord__pb2.NodeInfo.FromString,
                 _registered_method=True)
@@ -89,7 +89,7 @@ class ChordServiceStub(object):
 class ChordServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def GetSuccessor(self, request, context):
+    def FindSuccessor(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -152,8 +152,8 @@ class ChordServiceServicer(object):
 
 def add_ChordServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'GetSuccessor': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetSuccessor,
+            'FindSuccessor': grpc.unary_unary_rpc_method_handler(
+                    servicer.FindSuccessor,
                     request_deserializer=chord__pb2.ID.FromString,
                     response_serializer=chord__pb2.NodeInfo.SerializeToString,
             ),
@@ -214,7 +214,7 @@ class ChordService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def GetSuccessor(request,
+    def FindSuccessor(request,
             target,
             options=(),
             channel_credentials=None,
@@ -227,7 +227,7 @@ class ChordService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/chord.ChordService/GetSuccessor',
+            '/chord.ChordService/FindSuccessor',
             chord__pb2.ID.SerializeToString,
             chord__pb2.NodeInfo.FromString,
             options,

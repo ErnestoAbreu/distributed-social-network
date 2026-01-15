@@ -95,7 +95,7 @@ class Replicator(threading.Thread):
 
                 channel = grpc.insecure_channel(current.address)
                 stub = ChordServiceStub(channel)
-                next_node = stub.GetSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                next_node = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
                 channel.close()
 
                 if next_node and next_node.address != self.node.address:

@@ -30,7 +30,7 @@ class ChordNode(ChordServiceServicer):
         self.replicator = None
 
     # ---------------- Chord RPCs ----------------
-    def GetSuccessor(self, request, context) -> NodeInfo:
+    def FinSuccessor(self, request, context) -> NodeInfo:
         try:
             return self.find_successor(request.id)
         except Exception as e:
@@ -129,7 +129,7 @@ class ChordNode(ChordServiceServicer):
 
             channel = grpc.insecure_channel(known_node.address)
             stub = ChordServiceStub(channel)
-            successor = stub.GetSuccessor(ID(id=self.id), timeout=TIMEOUT)
+            successor = stub.FindSuccessor(ID(id=self.id), timeout=TIMEOUT)
             channel.close()
 
             if successor and successor.address:
@@ -176,7 +176,7 @@ class ChordNode(ChordServiceServicer):
         try:
             channel = grpc.insecure_channel(n0.address)
             stub = ChordServiceStub(channel)
-            result = stub.GetSuccessor(ID(id=key), timeout=TIMEOUT)
+            result = stub.FindSuccessor(ID(id=key), timeout=TIMEOUT)
             channel.close()
             logger.info(f"find_successor: remote returned {result.id}@{result.address}")
             return result

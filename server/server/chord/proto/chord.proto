@@ -3,7 +3,7 @@ syntax = "proto3";
 package chord;
 
 service ChordService {
-    rpc GetSuccessor (ID) returns (NodeInfo);
+    rpc FindSuccessor (ID) returns (NodeInfo);
     rpc GetPredecessor (Empty) returns (NodeInfo);
     rpc UpdatePredecessor (NodeInfo) returns (Empty);
     rpc Ping (Empty) returns (Empty);
