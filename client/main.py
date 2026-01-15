@@ -61,6 +61,28 @@ def _popup_error(message: str) -> None:
         st.error(message)
 
 
+def _popup_warning(message: str) -> None:
+    """Show a warning as a popup-style notification (native Streamlit).
+
+    Uses st.toast when available; falls back to st.warning.
+    """
+    try:
+        st.toast(message, icon="⚠️")
+    except Exception:
+        st.warning(message)
+
+
+def _popup_info(message: str) -> None:
+    """Show an info message as a popup-style notification (native Streamlit).
+
+    Uses st.toast when available; falls back to st.info.
+    """
+    try:
+        st.toast(message, icon="ℹ️")
+    except Exception:
+        st.info(message)
+
+
 async def update_cache():
     if 'logged_user' not in st.session_state:
         st.session_state.logged_user = None
@@ -109,7 +131,7 @@ def navbar():
         st.markdown("---")
         
         if st.session_state.logged_user is None:
-            st.info("👋 **Welcome!**\n\nPlease login or register to get started.")
+            _popup_info("👋 **Welcome!**\n\nPlease login or register to get started.")
             option = st.radio('', ['Login/Register'], label_visibility="collapsed")
         else:
             st.success(f"**Logged in as:**\n### @{st.session_state.logged_user}")
@@ -141,7 +163,7 @@ def navbar():
 def user_stats():
     token = st.session_state.get('token')
     if not st.session_state.get('logged_user') or not token:
-        st.info('🔐 **Please log in to see your stats.**')
+        _popup_info('🔐 **Please log in to see your stats.**')
         return
 
     followers = asyncio.run(get_followers(st.session_state.logged_user, token))
@@ -304,7 +326,7 @@ def relationships_view():
     _enter_view('relationships')
     token = st.session_state.get('token')
     if not st.session_state.get('logged_user') or not token:
-        st.warning('🔐 **Your session expired. Please log in again.**')
+        _popup_warning('🔐 **Your session expired. Please log in again.**')
         switch_view('login')
         st.rerun()
 
@@ -348,11 +370,11 @@ def relationships_view():
         if follow_btn:
             token = st.session_state.get('token')
             if not token:
-                st.warning('🔐 **Your session expired. Please log in again.**')
+                _popup_warning('🔐 **Your session expired. Please log in again.**')
                 switch_view('login')
                 st.rerun()
             if not user_to_follow:
-                st.warning('⚠️ **Please enter a username**')
+                _popup_warning('⚠️ **Please enter a username**')
             elif '|' in user_to_follow:
                 _popup_error('❌ **Invalid username format**')
             else:
@@ -374,7 +396,7 @@ def relationships_view():
         
         token = st.session_state.get('token')
         if not token:
-            st.warning('🔐 **Your session expired. Please log in again.**')
+            _popup_warning('🔐 **Your session expired. Please log in again.**')
             switch_view('login')
             st.rerun()
         
@@ -383,7 +405,7 @@ def relationships_view():
         
         if response is not None:
             if len(response) == 0:
-                st.info("📭 **No followers yet**\n\nShare your profile to gain followers!")
+                _popup_info("📭 **No followers yet**\n\nShare your profile to gain followers!")
             else:
                 st.success(f"**{len(response)} follower{'s' if len(response) != 1 else ''}**")
                 st.markdown("")
@@ -404,7 +426,7 @@ def relationships_view():
         
         token = st.session_state.get('token')
         if not token:
-            st.warning('🔐 **Your session expired. Please log in again.**')
+            _popup_warning('🔐 **Your session expired. Please log in again.**')
             switch_view('login')
             st.rerun()
         
@@ -413,7 +435,7 @@ def relationships_view():
         
         if response is not None:
             if len(response) == 0:
-                st.info("📭 **Not following anyone yet**\n\nStart following users to see their posts in your feed!")
+                _popup_info("📭 **Not following anyone yet**\n\nStart following users to see their posts in your feed!")
             else:
                 st.success(f"**Following {len(response)} user{'s' if len(response) != 1 else ''}**")
                 st.markdown("")
@@ -484,7 +506,7 @@ def show_post(post, idx):
 def refresh_posts():
     token = st.session_state.get('token')
     if not st.session_state.get('logged_user') or not token:
-        st.warning('🔐 **Your session expired. Please log in again.**')
+        _popup_warning('🔐 **Your session expired. Please log in again.**')
         switch_view('login')
         st.rerun()
     
@@ -507,7 +529,7 @@ def refresh_posts():
                     if response_post:
                         posts.append(response_post.post)
                     else:
-                        st.warning(f'⚠️ Could not load post {post_id}')
+                        _popup_warning(f'⚠️ Could not load post {post_id}')
             # No mostrar error si un usuario no tiene posts
 
         posts.sort(key=lambda post: datetime.fromisoformat(
@@ -524,7 +546,7 @@ def post_view():
 
     token = st.session_state.get('token')
     if not st.session_state.get('logged_user') or not token:
-        st.warning('🔐 **Your session expired. Please log in again.**')
+        _popup_warning('🔐 **Your session expired. Please log in again.**')
         switch_view('login')
         st.rerun()
 
@@ -562,7 +584,7 @@ def post_view():
             
             if submitted:
                 if not content or not content.strip():
-                    st.warning('⚠️ **Post cannot be empty** - Write something first!')
+                    _popup_warning('⚠️ **Post cannot be empty** - Write something first!')
                 else:
                     with st.spinner('📤 Publishing your post...'):
                         response = publish(st.session_state.logged_user, content, token)
@@ -600,7 +622,7 @@ def post_view():
         for idx, post in enumerate(st.session_state.posts):
             show_post(post, idx)
     else:
-        st.info("📭 **Your feed is empty**\n\nFollow users to see their posts here, or create your first post!")
+        _popup_info("📭 **Your feed is empty**\n\nFollow users to see their posts here, or create your first post!")
 
     # Manejar repost
     if st.session_state.get('repost_clicked', False):
