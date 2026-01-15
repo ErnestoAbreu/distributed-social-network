@@ -6,6 +6,7 @@ import os
 import subprocess
 import grpc
 import streamlit as st
+from typing import Optional
 
 from client.client.constants import *
 
@@ -14,6 +15,34 @@ logger.setLevel(logging.INFO)
 
 GLOBAL_SERVER = None
 GLOBAL_BACKGROUND_CHECK_STARTED = False
+
+
+class NoServersAvailableError(ConnectionError):
+    """Raised when the client cannot find any alive server to contact."""
+
+
+NO_SERVERS_AVAILABLE_MESSAGE = 'No servers are available right now. Please try again later.'
+
+
+def _set_global_server(new_server: Optional[str], *, source: str) -> None:
+    """Update GLOBAL_SERVER and log only when it changes."""
+    global GLOBAL_SERVER
+    if GLOBAL_SERVER == new_server:
+        return
+
+    previous = GLOBAL_SERVER
+    GLOBAL_SERVER = new_server
+
+    if new_server:
+        if previous:
+            logger.info('Active server changed (%s): %s -> %s', source, previous, new_server)
+        else:
+            logger.info('Active server selected (%s): %s', source, new_server)
+    else:
+        if previous:
+            logger.warning('No active servers available (%s). Previous was %s', source, previous)
+        else:
+            logger.warning('No active servers available (%s).', source)
 
 class _ClientCallDetails(grpc.ClientCallDetails):
     def __init__(self, method, timeout, metadata, credentials, wait_for_ready, compression):
@@ -38,52 +67,48 @@ def _augment_client_call_details(client_call_details, new_metadata):
         )
 
 def get_host(service):
-    if 'server' not in st.session_state:
-        st.session_state['server'] = None
+    port = int(service)
+    server = st.session_state.get('server', None)
 
-    server = st.session_state['server']
+    if server and is_alive(server, port):
+        return f'{server}:{port}'
 
-    if not server or not is_alive(server, int(service)):
-        update_server()
-        logger.info(f'New conection  to {server}:{service}')
-        server = st.session_state['server']
+    previous = server
+    update_server()
+    server = st.session_state.get('server')
 
-    if server and is_alive(server, int(service)):
-        return f'{server}:{service}'
+    if server and is_alive(server, port):
+        if server != previous:
+            logger.info(f"Using server {server} for port {port}")
+        return f'{server}:{port}'
 
-    logger.info(server)
-
-    raise ConnectionError('No available servers to connect')
+    raise NoServersAvailableError(NO_SERVERS_AVAILABLE_MESSAGE)
 
 def update_server():
-    global GLOBAL_SERVER
-
     try:
         server_info = discover()
     except Exception as e:
-        logger.info(f'No server found: {e}')
+        logger.info(f'Server discovery failed: {e}')
         server_info = None
 
     if server_info:
-        logger.info(f'Found {server_info}')
         host_to_use = server_info[1]
         st.session_state['server'] = host_to_use
-        GLOBAL_SERVER = host_to_use
+        _set_global_server(host_to_use, source='foreground')
     else:
-        logger.info('No server found')
         if st.session_state.get('server'):
             del st.session_state['server']
-        GLOBAL_SERVER = None
+        _set_global_server(None, source='foreground')
 
 def is_alive(host, port, timeout=10):
     if not host:
         return False
     try:
         with socket.create_connection((host, port), timeout=timeout):
-            logger.info(f'{host}:{port} handshake done')
+            logger.debug(f'{host}:{port} is reachable')
             return True
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
-        logger.info(f'{host}:{port} not reachable: {e}')
+        logger.debug(f'{host}:{port} not reachable: {e}')
         return False
 
 def discover():
@@ -96,13 +121,13 @@ def discover():
         if is_alive(env_host, int(env_port)):
             return env_host, env_host
         else:
-            logger.warning(f'{env_host}:{env_port} not alive, trying nslookup')
+            logger.warning(f'{env_host}:{env_port} not alive, falling back to DNS discovery')
 
     # resolve service name via nslookup
-    service_name = 'socialnet_server'
+    service_name = os.getenv('SERVICE_SERVER', 'socialnet_server')
     try:
         result = subprocess.run(['nslookup', service_name], capture_output=True, text=True, check=True)
-        logger.info(f'nslookup result:\n{result.stdout}')
+        logger.debug(f'nslookup output:\n{result.stdout}')
 
         ips = []
         for line in result.stdout.splitlines():
@@ -114,13 +139,14 @@ def discover():
         for ip in ips:
             port_to_check = int(env_port) if env_port else int(AUTH)
             if is_alive(ip, port_to_check):
-                logger.info(f'Using alive server {ip}')
+                logger.info(f'Discovered alive server via DNS: {ip}')
                 return ip, ip
 
         logger.warning('No alive servers found via nslookup')
 
     except subprocess.CalledProcessError as e:
-        logger.error(f'nslookup failed: {e}')
+        stderr = getattr(e, 'stderr', '')
+        logger.error(f'nslookup failed: {e} {stderr}')
 
     raise RuntimeError('No server found')
 
@@ -147,26 +173,27 @@ def get_authenticated_channel(host, token):
     return grpc.intercept_channel(channel, auth_interceptor)
 
 def update_server_background():
-    global GLOBAL_SERVER
     try:
         server_info = discover()
     except Exception:
         server_info = None
 
     if server_info:
-        logger.info(f'Discover found {server_info} (background)')
-        GLOBAL_SERVER = server_info[1]
+        _set_global_server(server_info[1], source='background')
     else:
-        logger.info('No server found (background)')
-        GLOBAL_SERVER = None
+        _set_global_server(None, source='background')
 
 def periodic_server_check():
-    global GLOBAL_SERVER
     while True:
-        auth_port = int(AUTH) if isinstance(AUTH, str) and AUTH.isdigit() else AUTH
-        if not GLOBAL_SERVER or not is_alive(GLOBAL_SERVER, int(auth_port)):
-            logger.info('Current server is not alive. Updating server info (background)')
-            update_server_background()
+        try:
+            auth_port = int(AUTH) if isinstance(AUTH, str) and AUTH.isdigit() else AUTH
+            current = GLOBAL_SERVER
+            if not current or not is_alive(current, int(auth_port)):
+                logger.info('Refreshing active server (background)')
+                update_server_background()
+        except Exception as e:
+            logger.warning(f'Background server check failed: {e}')
+
         time.sleep(SERVER_CHECK_INTERVAL)
 
 def start_background_check():
@@ -174,3 +201,4 @@ def start_background_check():
     if not GLOBAL_BACKGROUND_CHECK_STARTED:
         threading.Thread(target=periodic_server_check, daemon=True).start()
         GLOBAL_BACKGROUND_CHECK_STARTED = True
+        logger.info('Background server discovery started')

@@ -10,7 +10,8 @@ from client.client.relations import follow_user, unfollow_user, get_followers, g
 from client.client.posts import publish, repost, get_posts, get_posts_id, get_post
 
 from client.client.constants import *
-from client.client.discoverer import start_background_check
+from client.client.discoverer import start_background_check, NoServersAvailableError, NO_SERVERS_AVAILABLE_MESSAGE,
+
 
 logger = logging.getLogger('socialnet.client.main')
 # logger.setLevel(logging.INFO)
@@ -24,6 +25,12 @@ st.set_page_config(
 )
 
 start_background_check()
+
+
+def _handle_no_servers(err=None) -> None:
+    _popup_error(NO_SERVERS_AVAILABLE_MESSAGE)
+    if err is not None:
+        logger.warning('No servers available: %s', err)
 
 
 def _clear_session_keys(*keys: str) -> None:
@@ -166,7 +173,11 @@ def user_stats():
         _popup_info('🔐 **Please log in to see your stats.**')
         return
 
-    followers = asyncio.run(get_followers(st.session_state.logged_user, token))
+    try:
+        followers = asyncio.run(get_followers(st.session_state.logged_user, token))
+    except NoServersAvailableError as e:
+        _handle_no_servers(e)
+        return
 
     if followers is not None:
         cnt_followers = len(followers)
@@ -174,7 +185,11 @@ def user_stats():
         cnt_followers = 0
         _popup_error('⚠️ **Failed to retrieve followers**')
 
-    following = asyncio.run(get_following(st.session_state.logged_user, token))
+    try:
+        following = asyncio.run(get_following(st.session_state.logged_user, token))
+    except NoServersAvailableError as e:
+        _handle_no_servers(e)
+        return
     if following is not None:
         cnt_following = len(following)
     else:
@@ -205,8 +220,12 @@ def handle_login(username, password):
         _popup_error('❌ **Invalid username format**')
         return
 
-    with st.spinner('🔄 Logging in...'):
-        token = login(username, password)
+    try:
+        with st.spinner('🔄 Logging in...'):
+            token = login(username, password)
+    except NoServersAvailableError as e:
+        _handle_no_servers(e)
+        return
         
     if token:
         st.session_state.logged_user = username
@@ -231,8 +250,12 @@ def handle_register(username, email, name, password):
         _popup_error(f'❌ **Username must be between {MIN_USERNAME_LENGTH} and {MAX_USERNAME_LENGTH} characters**')
         return
 
-    with st.spinner('🔄 Creating your account...'):
-        response = register(username, email, name, password)
+    try:
+        with st.spinner('🔄 Creating your account...'):
+            response = register(username, email, name, password)
+    except NoServersAvailableError as e:
+        _handle_no_servers(e)
+        return
         
     if response and response.success:
         st.success('✅ **Registration successful!** You can now log in.')
@@ -378,9 +401,13 @@ def relationships_view():
             elif '|' in user_to_follow:
                 _popup_error('❌ **Invalid username format**')
             else:
-                with st.spinner(f'🔄 Following @{user_to_follow}...'):
-                    response = follow_user(
-                        st.session_state.logged_user, user_to_follow, token)
+                try:
+                    with st.spinner(f'🔄 Following @{user_to_follow}...'):
+                        response = follow_user(
+                            st.session_state.logged_user, user_to_follow, token)
+                except NoServersAvailableError as e:
+                    _handle_no_servers(e)
+                    response = None
                 
                 if response and response.success:
                     st.success(f"✅ **You're now following @{user_to_follow}!**")
@@ -401,7 +428,11 @@ def relationships_view():
             st.rerun()
         
         with st.spinner('🔄 Loading followers...'):
-            response = asyncio.run(get_followers(st.session_state.logged_user, token))
+            try:
+                response = asyncio.run(get_followers(st.session_state.logged_user, token))
+            except NoServersAvailableError as e:
+                _handle_no_servers(e)
+                response = None
         
         if response is not None:
             if len(response) == 0:
@@ -431,7 +462,11 @@ def relationships_view():
             st.rerun()
         
         with st.spinner('🔄 Loading following list...'):
-            response = asyncio.run(get_following(st.session_state.logged_user, token))
+            try:
+                response = asyncio.run(get_following(st.session_state.logged_user, token))
+            except NoServersAvailableError as e:
+                _handle_no_servers(e)
+                response = None
         
         if response is not None:
             if len(response) == 0:
@@ -511,7 +546,12 @@ def refresh_posts():
         st.rerun()
     
     with st.spinner('🔄 Loading posts from your network...'):
-        response = asyncio.run(get_following(st.session_state.logged_user, token))
+        try:
+            response = asyncio.run(get_following(st.session_state.logged_user, token))
+        except NoServersAvailableError as e:
+            _handle_no_servers(e)
+            st.session_state.posts = []
+            return
         users = [st.session_state.logged_user]
 
         if response is not None:
@@ -522,10 +562,20 @@ def refresh_posts():
 
         posts = []
         for user in users:
-            response_ids = asyncio.run(get_posts_id(user, token))
+            try:
+                response_ids = asyncio.run(get_posts_id(user, token))
+            except NoServersAvailableError as e:
+                _handle_no_servers(e)
+                st.session_state.posts = []
+                return
             if response_ids:
                 for post_id in response_ids.posts_id:
-                    response_post = asyncio.run(get_post(post_id, token))
+                    try:
+                        response_post = asyncio.run(get_post(post_id, token))
+                    except NoServersAvailableError as e:
+                        _handle_no_servers(e)
+                        st.session_state.posts = []
+                        return
                     if response_post:
                         posts.append(response_post.post)
                     else:
@@ -550,8 +600,12 @@ def post_view():
         switch_view('login')
         st.rerun()
 
-    response_followers = asyncio.run(
-        get_followers(st.session_state.logged_user, token))
+    try:
+        response_followers = asyncio.run(
+            get_followers(st.session_state.logged_user, token))
+    except NoServersAvailableError as e:
+        _handle_no_servers(e)
+        return
 
     if response_followers is not None:
         followers = len(response_followers)
@@ -587,7 +641,11 @@ def post_view():
                     _popup_warning('⚠️ **Post cannot be empty** - Write something first!')
                 else:
                     with st.spinner('📤 Publishing your post...'):
-                        response = publish(st.session_state.logged_user, content, token)
+                        try:
+                            response = publish(st.session_state.logged_user, content, token)
+                        except NoServersAvailableError as e:
+                            _handle_no_servers(e)
+                            response = None
 
                     if response and response.success:
                         st.success(f'✅ **{response.message}**')
@@ -629,8 +687,12 @@ def post_view():
         original_message_id = st.session_state.repost_id
         
         with st.spinner('🔄 Reposting...'):
-            repost_response = repost(
-                st.session_state.logged_user, original_message_id, token)
+            try:
+                repost_response = repost(
+                    st.session_state.logged_user, original_message_id, token)
+            except NoServersAvailableError as e:
+                _handle_no_servers(e)
+                repost_response = None
 
         if repost_response and repost_response.success:
             st.success('✅ **Post reposted successfully!**')
