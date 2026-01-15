@@ -15,7 +15,50 @@ from client.client.discoverer import start_background_check
 logger = logging.getLogger('socialnet.client.main')
 # logger.setLevel(logging.INFO)
 
+# Configuración de la página
+st.set_page_config(
+    page_title="Social Network",
+    page_icon="🌐",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 start_background_check()
+
+
+def _clear_session_keys(*keys: str) -> None:
+    for key in keys:
+        st.session_state.pop(key, None)
+
+
+def _enter_view(view_name: str) -> None:
+    """Runs once when entering a view to avoid stale UI state across pages."""
+    previous = st.session_state.get('_active_view')
+    if previous == view_name:
+        return
+
+    st.session_state['_active_view'] = view_name
+
+    # Clear UI-only state that should not leak between views.
+    if view_name == 'login':
+        _clear_session_keys('posts', 'repost_clicked', 'repost_id', 'follow_username')
+    elif view_name == 'relationships':
+        _clear_session_keys('follow_username')
+    elif view_name == 'posts':
+        _clear_session_keys('repost_clicked', 'repost_id')
+        # Force a fresh feed load on entry.
+        st.session_state['posts'] = None
+
+
+def _popup_error(message: str) -> None:
+    """Show an error as a popup-style notification (native Streamlit).
+
+    Uses st.toast when available; falls back to st.error.
+    """
+    try:
+        st.toast(message, icon="❌")
+    except Exception:
+        st.error(message)
 
 
 async def update_cache():
@@ -52,6 +95,9 @@ if 'logged_user' not in st.session_state:
 if 'current_view' not in st.session_state:
     st.session_state.current_view = 'login'
 
+if 'token' not in st.session_state:
+    st.session_state['token'] = None
+
 
 def switch_view(view):
     st.session_state.current_view = view
@@ -59,148 +105,328 @@ def switch_view(view):
 
 def navbar():
     with st.sidebar:
-        st.title('Social network')
-        st.markdown('-----')
+        st.markdown("# 🌐 Social Network")
+        st.markdown("---")
+        
         if st.session_state.logged_user is None:
-            option = st.radio('Navigate', ['Login/Register'])
+            st.info("👋 **Welcome!**\n\nPlease login or register to get started.")
+            option = st.radio('', ['Login/Register'], label_visibility="collapsed")
         else:
-            st.markdown(f'Welcome, {st.session_state.logged_user}')
-            option = st.radio('Navigate', ['Relationships', 'Posts', 'Logout'])
+            st.success(f"**Logged in as:**\n### @{st.session_state.logged_user}")
+            st.markdown("---")
+            
+            option = st.radio(
+                '**Navigation**',
+                ['💬 Posts', '🤝 Relationships', '🚪 Logout'],
+                format_func=lambda x: x.split(' ', 1)[1]
+            )
 
-        if option == 'Login':
+        if option == 'Login/Register':
             switch_view('login')
             return
 
-        if option == 'Relationships':
+        if option == '🤝 Relationships' or option == 'Relationships':
             switch_view('relationships')
             return
         
-        if option == 'Posts':
+        if option == '💬 Posts' or option == 'Posts':
             switch_view('posts')
 
-        if option == 'Logout':
+        if option == '🚪 Logout' or option == 'Logout':
             st.session_state.logged_user = None
+            _clear_session_keys('token', 'posts', 'repost_clicked', 'repost_id', 'follow_username')
             switch_view('login')
             st.rerun()
         
 def user_stats():
-    token = st.session_state['token']
+    token = st.session_state.get('token')
+    if not st.session_state.get('logged_user') or not token:
+        st.info('🔐 **Please log in to see your stats.**')
+        return
 
     followers = asyncio.run(get_followers(st.session_state.logged_user, token))
 
     if followers is not None:
         cnt_followers = len(followers)
     else:
-        cnt_followers = -1
-        st.error('Failed to retrieve followers')
+        cnt_followers = 0
+        _popup_error('⚠️ **Failed to retrieve followers**')
 
     following = asyncio.run(get_following(st.session_state.logged_user, token))
     if following is not None:
         cnt_following = len(following)
     else:
-        cnt_following = -1
-        st.error('Failed to retrieve following')
+        cnt_following = 0
+        _popup_error('⚠️ **Failed to retrieve following list**')
 
-    st.markdown(f"""
-                <div style="background-color:rgb(25, 30, 41);padding:5px 20px;margin:10px 0;border-radius:10px;">
-                    <h3>📊 Stats</h3>
-                    <div style="display:flex;">
-                        <p><strong>Followers<strong>: {cnt_followers}</p>
-                        <p style="margin-left:30px"><strong>Following<strong>: {cnt_following}</p>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,)
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        st.metric(
+            label="👥 Followers", 
+            value=cnt_followers,
+            help="Users following you"
+        )
+    with col2:
+        st.metric(
+            label="➕ Following", 
+            value=cnt_following,
+            help="Users you follow"
+        )
 
 
 def handle_login(username, password):
+    if not username or not password:
+        _popup_error('❌ **Please fill in all fields**')
+        return
+        
     if '|' in username:
-        st.error(f'Invalid username')
+        _popup_error('❌ **Invalid username format**')
         return
 
-    token = login(username, password)
+    with st.spinner('🔄 Logging in...'):
+        token = login(username, password)
+        
     if token:
         st.session_state.logged_user = username
         st.session_state['token'] = token
-        switch_view('relationships')
+        st.success(f'✅ **Welcome back, {username}!**')
+        switch_view('posts')
         st.rerun()
     else:
-        st.error('Invalid username or password')
+        _popup_error('❌ **Invalid credentials** - Please check your username and password')
 
 
 def handle_register(username, email, name, password):
+    if not username or not email or not name or not password:
+        _popup_error('❌ **Please fill in all fields**')
+        return
+        
     if '|' in username:
-        st.error('Username cannot contain character |')
+        _popup_error('❌ **Username cannot contain the "|" character**')
         return
 
     if len(username) < MIN_USERNAME_LENGTH or len(username) > MAX_USERNAME_LENGTH:
-        st.error(f'Username length must have between {MIN_USERNAME_LENGTH} and {MAX_USERNAME_LENGTH} characters')
+        _popup_error(f'❌ **Username must be between {MIN_USERNAME_LENGTH} and {MAX_USERNAME_LENGTH} characters**')
         return
 
-    response = register(username, email, name, password)
+    with st.spinner('🔄 Creating your account...'):
+        response = register(username, email, name, password)
+        
     if response and response.success:
-        st.success('Registration successful! Please log in')
+        st.success('✅ **Registration successful!** You can now log in.')
+        st.balloons()
         switch_view('login')
     else:
-        st.error('Registration failed. Try again')
+        _popup_error('❌ **Registration failed** - Username or email might already exist')
 
 def login_register_view():
-    st.title("🔐 Auth")
-    option = st.selectbox("Choose an option", ["Login", "Register"])
-    username = st.text_input("👤 Username")
-    password = st.text_input("🔑 Password", type="password")
-
-    if option == "Login":
-        if st.button("Login"):
-            handle_login(username, password)
-    elif option == "Register":
-        email = st.text_input("E-mail")
-        name = st.text_input("Name")
-
-        if st.button("Register"):
-            handle_register(username, email, name, password)
+    _enter_view('login')
+    # Centrar el contenido
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("# 🔐 Welcome")
+        st.markdown("### Connect with your network")
+        st.markdown("---")
+        
+        tab1, tab2 = st.tabs(["🔑 **Login**", "📝 **Register**"])
+        
+        with tab1:
+            st.markdown("#### Sign in to your account")
+            st.markdown("")
+            
+            with st.form("login_form", clear_on_submit=False):
+                username = st.text_input(
+                    "Username",
+                    placeholder="Enter your username",
+                    help="Your unique username"
+                )
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="Enter your password",
+                    help="Your account password"
+                )
+                
+                st.markdown("")
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    submitted = st.form_submit_button(
+                        "🚀 Login", 
+                        use_container_width=True, 
+                        type="primary"
+                    )
+                
+                if submitted:
+                    handle_login(username, password)
+        
+        with tab2:
+            st.markdown("#### Create your account")
+            st.markdown("")
+            
+            with st.form("register_form", clear_on_submit=False):
+                username = st.text_input(
+                    "Username",
+                    placeholder="Choose a unique username",
+                    help=f"Between {MIN_USERNAME_LENGTH} and {MAX_USERNAME_LENGTH} characters"
+                )
+                email = st.text_input(
+                    "Email",
+                    placeholder="your.email@example.com",
+                    help="Your email address"
+                )
+                name = st.text_input(
+                    "Full Name",
+                    placeholder="Your full name",
+                    help="Your display name"
+                )
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="Choose a secure password",
+                    help="Create a strong password"
+                )
+                
+                st.markdown("")
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    submitted = st.form_submit_button(
+                        "✨ Create Account", 
+                        use_container_width=True, 
+                        type="primary"
+                    )
+                
+                if submitted:
+                    handle_register(username, email, name, password)
 
 
 def relationships_view():
-    st.title(f"🤝 Relationships")
-    user_stats()
+    _enter_view('relationships')
+    token = st.session_state.get('token')
+    if not st.session_state.get('logged_user') or not token:
+        st.warning('🔐 **Your session expired. Please log in again.**')
+        switch_view('login')
+        st.rerun()
 
-    option = st.selectbox("Choose an action", [
-                          "Follow a User", "View Followers", "View Following"])
-    if option == "Follow a User":
-        user_to_follow = st.text_input("Enter username to follow")
-        token = st.session_state['token']
-        if st.button("👉 Follow"):
-            if '|' in user_to_follow:
-                st.error('Username cannot contain |')
+    st.markdown("# 🤝 Relationships")
+    st.markdown("### Manage your connections")
+    st.markdown("---")
+    
+    # Estadísticas
+    user_stats()
+    st.markdown("---")
+    
+    # Tabs para las acciones
+    tab1, tab2, tab3 = st.tabs([
+        "➕ **Follow Users**", 
+        "👥 **Your Followers**", 
+        "📋 **Following List**"
+    ])
+    
+    with tab1:
+        st.markdown("#### Discover and follow new users")
+        st.markdown("")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            user_to_follow = st.text_input(
+                "Username to follow",
+                placeholder="@username",
+                label_visibility="collapsed",
+                help="Enter the username you want to follow",
+                key='follow_username'
+            )
+        with col2:
+            follow_btn = st.button(
+                "➕ Follow", 
+                use_container_width=True, 
+                type="primary",
+                help="Follow this user"
+            )
+        
+        if follow_btn:
+            token = st.session_state.get('token')
+            if not token:
+                st.warning('🔐 **Your session expired. Please log in again.**')
+                switch_view('login')
+                st.rerun()
+            if not user_to_follow:
+                st.warning('⚠️ **Please enter a username**')
+            elif '|' in user_to_follow:
+                _popup_error('❌ **Invalid username format**')
             else:
-                response = follow_user(
-                    st.session_state.logged_user, user_to_follow, token)
+                with st.spinner(f'🔄 Following @{user_to_follow}...'):
+                    response = follow_user(
+                        st.session_state.logged_user, user_to_follow, token)
+                
                 if response and response.success:
-                    st.success(f"You are now following {user_to_follow}.")
+                    st.success(f"✅ **You're now following @{user_to_follow}!**")
+                    st.balloons()
                     st.rerun()
                 else:
-                    st.error(f"Failed to follow the user. {response.message}")
-    elif option == "View Followers":
-        token = st.session_state['token']
-        response = asyncio.run(get_followers(
-            st.session_state.logged_user, token))
+                    error_msg = response.message if response else 'Unknown error'
+                    _popup_error(f"❌ **Could not follow user** - {error_msg}")
+    
+    with tab2:
+        st.markdown("#### People following you")
+        st.markdown("")
+        
+        token = st.session_state.get('token')
+        if not token:
+            st.warning('🔐 **Your session expired. Please log in again.**')
+            switch_view('login')
+            st.rerun()
+        
+        with st.spinner('🔄 Loading followers...'):
+            response = asyncio.run(get_followers(st.session_state.logged_user, token))
+        
         if response is not None:
-            st.markdown("### Your followers:")
-            for follower in response:
-                st.markdown(f"👥 **{follower}**")
+            if len(response) == 0:
+                st.info("📭 **No followers yet**\n\nShare your profile to gain followers!")
+            else:
+                st.success(f"**{len(response)} follower{'s' if len(response) != 1 else ''}**")
+                st.markdown("")
+                
+                for idx, follower in enumerate(response):
+                    with st.container():
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.markdown(f"#### 👤 @{follower}")
+                        if idx < len(response) - 1:
+                            st.divider()
         else:
-            st.error("Failed to retrieve followers.")
-    elif option == "View Following":
-        token = st.session_state['token']
-        response = asyncio.run(get_following(
-            st.session_state.logged_user, token))
+            _popup_error("❌ **Failed to load followers** - Please try again")
+    
+    with tab3:
+        st.markdown("#### Users you're following")
+        st.markdown("")
+        
+        token = st.session_state.get('token')
+        if not token:
+            st.warning('🔐 **Your session expired. Please log in again.**')
+            switch_view('login')
+            st.rerun()
+        
+        with st.spinner('🔄 Loading following list...'):
+            response = asyncio.run(get_following(st.session_state.logged_user, token))
+        
         if response is not None:
-            st.markdown("### You are following:")
-            for following in response:
-                st.markdown(f"👥 **{following}**")
+            if len(response) == 0:
+                st.info("📭 **Not following anyone yet**\n\nStart following users to see their posts in your feed!")
+            else:
+                st.success(f"**Following {len(response)} user{'s' if len(response) != 1 else ''}**")
+                st.markdown("")
+                
+                for idx, following in enumerate(response):
+                    with st.container():
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.markdown(f"#### 👤 @{following}")
+                        if idx < len(response) - 1:
+                            st.divider()
         else:
-            st.error("Failed to retrieve following list.")
+            _popup_error("❌ **Failed to load following list** - Please try again")
 
 
 def format_date_time(iso_timestamp):
@@ -209,92 +435,99 @@ def format_date_time(iso_timestamp):
         now = datetime.now(timezone.utc)
 
         if dt.date() == now.date():
-            return f"Today · {dt.strftime('%H:%M')}"
+            return f"Today at {dt.strftime('%H:%M')}"
         elif (now.date() - dt.date()).days == 1:
-            return f"Yesterday · {dt.strftime('%H:%M')}"
+            return f"Yesterday at {dt.strftime('%H:%M')}"
         else:
-            return dt.strftime('%b %d, %Y · %H:%M')
+            return dt.strftime('%b %d, %Y at %H:%M')
     except Exception as e:
         return iso_timestamp
 
 
-def show_post(post):
-    post_html = markdown.markdown(post.content)
-
-    if post.is_repost:
-        repost_time = format_date_time(post.timestamp)
-        original_time = format_date_time(post.original_post_timestamp)
-        html = f"""
-        <div style="background-color:#2a2f3a; padding:16px; margin:12px 0; border-radius:12px; border-left:4px solid #888; font-family:sans-serif;">
-            <div style="font-size:1.1em; color:gray; margin-bottom:8px;">
-                🔁 <strong>{post.user_id}</strong>
-            </div>
-            <div style="background-color:#1c1f27; padding:12px; border-radius:8px;">
-                <table style="width:100%; border-collapse: collapse; border: none;">
-                    <tr style="border: none;">
-                        <td style="border: none; padding: 0; margin: 0; color:white; font-weight:bold; font-size:1.0em;">{post.original_post_user_id}</td>
-                        <td style="border: none; padding: 0; margin: 0; text-align:right; color:gray;">
-                            <small>from {original_time}</small>
-                        </td>
-                    </tr>
-                </table>
-                <div style="margin-top: 12px;">{post_html}</div>
-            </div>
-            <div style="text-align:right; margin-top:8px;">
-                <small style="color:gray;">{repost_time}</small>
-            </div>
-        </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
-    else:
-        timestamp = format_date_time(post.timestamp)
-        html = f"""
-        <div style="background-color:#1e222b; padding:16px; margin:12px 0; border-radius:12px; font-family:sans-serif;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h5 style="margin:0; color:white;">{post.user_id}</h5>
-                <span style="font-size:0.85em; color:gray;">{timestamp}</span>
-            </div>
-            <div style="margin-top: 12px;">{post_html}</div>
-        </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
+def show_post(post, idx):
+    with st.container():
+        if post.is_repost:
+            st.caption(f"🔁 **@{post.user_id}** reposted · {format_date_time(post.timestamp)}")
+            
+            with st.expander(f"**@{post.original_post_user_id}** · {format_date_time(post.original_post_timestamp)}", expanded=True):
+                post_content = markdown.markdown(post.content)
+                st.markdown(post_content, unsafe_allow_html=True)
+        else:
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f"### 👤 @{post.user_id}")
+            with col2:
+                st.caption(f"🕒 {format_date_time(post.timestamp)}")
+            
+            st.markdown("")
+            post_content = markdown.markdown(post.content)
+            st.markdown(post_content, unsafe_allow_html=True)
+        
+        st.markdown("")
+        
+        # Botones de acción
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+        with col1:
+            if st.button(
+                '🔁 Repost', 
+                key=f'repost_button_{idx}', 
+                use_container_width=True,
+                help="Share this post with your followers"
+            ):
+                st.session_state.repost_id = post.post_id
+                st.session_state.repost_clicked = True
+                st.rerun()
+        
+        st.divider()
 
 
 def refresh_posts():
-    token = st.session_state['token']
-    response = asyncio.run(get_following(st.session_state.logged_user, token))
-    users = [st.session_state.logged_user]
+    token = st.session_state.get('token')
+    if not st.session_state.get('logged_user') or not token:
+        st.warning('🔐 **Your session expired. Please log in again.**')
+        switch_view('login')
+        st.rerun()
+    
+    with st.spinner('🔄 Loading posts from your network...'):
+        response = asyncio.run(get_following(st.session_state.logged_user, token))
+        users = [st.session_state.logged_user]
 
-    if response is not None:
-        for following in response:
-            users.append(following)
-    else:
-        st.error('Failed to retrieve following list')
-
-    posts = []
-    for user in users:
-        response_ids = asyncio.run(get_posts_id(user, token))
-        if response_ids:
-            for post_id in response_ids.posts_id:
-                response_post = asyncio.run(get_post(post_id, token))
-                if response_post:
-                    posts.append(response_post.post)
-                else:
-                    st.error(f'Failed to load post {post_id}')
+        if response is not None:
+            for following in response:
+                users.append(following)
         else:
-            st.error(f'Failed to load post IDs of user {user}')
+            _popup_error('❌ **Failed to retrieve following list**')
 
-    posts.sort(key=lambda post: datetime.fromisoformat(
-        post.timestamp), reverse=True)
+        posts = []
+        for user in users:
+            response_ids = asyncio.run(get_posts_id(user, token))
+            if response_ids:
+                for post_id in response_ids.posts_id:
+                    response_post = asyncio.run(get_post(post_id, token))
+                    if response_post:
+                        posts.append(response_post.post)
+                    else:
+                        st.warning(f'⚠️ Could not load post {post_id}')
+            # No mostrar error si un usuario no tiene posts
 
-    st.session_state.posts = posts
+        posts.sort(key=lambda post: datetime.fromisoformat(
+            post.timestamp), reverse=True)
 
+        st.session_state.posts = posts
 
 def post_view():
-    st.title('💬 Posts')
-    refresh_posts()
+    _enter_view('posts')
 
-    token = st.session_state['token']
+    st.markdown('# 💬 Posts')
+    st.markdown('### Share your thoughts with the network')
+    st.markdown("---")
+
+    token = st.session_state.get('token')
+    if not st.session_state.get('logged_user') or not token:
+        st.warning('🔐 **Your session expired. Please log in again.**')
+        switch_view('login')
+        st.rerun()
+
     response_followers = asyncio.run(
         get_followers(st.session_state.logged_user, token))
 
@@ -302,60 +535,102 @@ def post_view():
         followers = len(response_followers)
     else:
         followers = 0
-        st.error('Failed to retrieve amount of followers')
+        _popup_error('⚠️ **Could not retrieve follower count**')
 
-    with st.form('post_form'):
-        content = st.text_area(
-            'Write a post:',
-            max_chars=min(MAX_POST_LENGHT, (followers + 1) * 300),
-            placeholder='What\'s on your mind?',
-        )
-        submitted = st.form_submit_button('Publish 🚀')
-        if submitted:
-            response = publish(st.session_state.logged_user, content, token)
+    # Formulario para crear post
+    with st.expander("✍️ **Create a new post**", expanded=True):
+        with st.form('post_form', clear_on_submit=True):
+            max_length = min(MAX_POST_LENGHT, (followers + 1) * 300)
+            
+            content = st.text_area(
+                'Your post',
+                max_chars=max_length,
+                placeholder="What's on your mind? Share your thoughts...",
+                height=120,
+                help=f"Maximum {max_length} characters (based on your {followers} follower{'s' if followers != 1 else ''})"
+            )
+            
+            col_info, col_btn = st.columns([3, 1])
+            with col_info:
+                st.caption(f"📝 {len(content) if content else 0}/{max_length} characters")
+            with col_btn:
+                submitted = st.form_submit_button(
+                    '🚀 Publish', 
+                    use_container_width=True, 
+                    type="primary"
+                )
+            
+            if submitted:
+                if not content or not content.strip():
+                    st.warning('⚠️ **Post cannot be empty** - Write something first!')
+                else:
+                    with st.spinner('📤 Publishing your post...'):
+                        response = publish(st.session_state.logged_user, content, token)
 
-            if response and response.success:
-                refresh_posts()
-                st.success(response.message)
-            else:
-                post = ""
-                if response:
-                    post = response.message
-                st.error(f'Failed to publish the post: {post}')
+                    if response and response.success:
+                        st.success(f'✅ **{response.message}**')
+                        st.balloons()
+                        st.session_state.posts = None
+                        st.rerun()
+                    else:
+                        error_msg = response.message if response else "Unknown error"
+                        _popup_error(f'❌ **Failed to publish** - {error_msg}')
 
-    if st.button('🔄 Refresh posts'):
+    st.markdown("---")
+    
+    # Botón para refrescar
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+    with col1:
+        if st.button('🔄 Refresh Feed', use_container_width=True, help="Load latest posts"):
+            refresh_posts()
+            st.rerun()
+
+    st.markdown("")
+
+    # Cargar y mostrar posts
+    if 'posts' not in st.session_state or st.session_state.posts is None:
         refresh_posts()
-
-    if 'posts' in st.session_state:
-        st.markdown("#### 📧 posts:")
+    
+    if 'posts' in st.session_state and st.session_state.posts:
+        post_count = len(st.session_state.posts)
+        st.markdown(f"### 📰 Your Feed")
+        st.caption(f"**{post_count} post{'s' if post_count != 1 else ''} from your network**")
+        st.markdown("---")
+        
         for idx, post in enumerate(st.session_state.posts):
-            show_post(post)
+            show_post(post, idx)
+    else:
+        st.info("📭 **Your feed is empty**\n\nFollow users to see their posts here, or create your first post!")
 
-            button_key = f'repost_button_{idx}'
-
-            if st.button('🔁 Repost', key=button_key):
-                st.session_state.repost_id = post.post_id
-                st.session_state.repost_clicked = True
-            st.markdown('-----')
-
+    # Manejar repost
     if st.session_state.get('repost_clicked', False):
         original_message_id = st.session_state.repost_id
-        repost_response = repost(
-            st.session_state.logged_user, original_message_id, token)
+        
+        with st.spinner('🔄 Reposting...'):
+            repost_response = repost(
+                st.session_state.logged_user, original_message_id, token)
 
         if repost_response and repost_response.success:
-            st.success('Message reposted successfully!')
+            st.success('✅ **Post reposted successfully!**')
+            st.balloons()
+            st.session_state.posts = None
             st.session_state.repost_clicked = False
             st.rerun()
         else:
-            post = ''
-            if repost_response:
-                post = repost_response.message
-            st.error(f'Failed to repost the message: {post}')
+            error_msg = repost_response.message if repost_response else 'Unknown error'
+            _popup_error(f'❌ **Failed to repost** - {error_msg}')
+        
         st.session_state.repost_clicked = False
 
 
+# Navegación principal
 navbar()
+
+# Hard guard: never render protected views without a valid session.
+if st.session_state.current_view != 'login':
+    if not st.session_state.get('logged_user') or not st.session_state.get('token'):
+        st.session_state.current_view = 'login'
+
 if st.session_state.current_view == 'login':
     login_register_view()
 elif st.session_state.current_view == 'relationships':
