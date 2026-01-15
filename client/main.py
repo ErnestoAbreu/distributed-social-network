@@ -421,9 +421,13 @@ def relationships_view():
             switch_view('login')
             st.rerun()
         
+        following_set = set()
         with st.spinner('🔄 Loading followers...'):
             try:
                 response = asyncio.run(get_followers(st.session_state.logged_user, token))
+                following = asyncio.run(get_following(st.session_state.logged_user, token))
+                if following:
+                    following_set = set(following)
             except NoServersAvailableError as e:
                 _handle_no_servers(e)
                 response = None
@@ -440,6 +444,43 @@ def relationships_view():
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.markdown(f"#### 👤 @{follower}")
+                        with col2:
+                            already_following = follower in following_set
+                            follow_back = st.button(
+                                "✅ Following" if already_following else "➕ Follow back",
+                                use_container_width=True,
+                                key=f"follow_back_{idx}_{follower}",
+                                help=(
+                                    "You are already following this user"
+                                    if already_following
+                                    else "Follow this user back"
+                                ),
+                                disabled=already_following,
+                            )
+
+                        if follow_back and not already_following:
+                            try:
+                                with st.spinner(f"🔄 Following @{follower}..."):
+                                    follow_response = follow_user(
+                                        st.session_state.logged_user,
+                                        follower,
+                                        token,
+                                    )
+                            except NoServersAvailableError as e:
+                                _handle_no_servers(e)
+                                follow_response = None
+
+                            if follow_response and follow_response.success:
+                                st.success(f"✅ **You're now following @{follower}!**")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                error_msg = (
+                                    follow_response.message
+                                    if follow_response
+                                    else 'Unknown error'
+                                )
+                                _popup_error(f"❌ **Could not follow user** - {error_msg}")
                         if idx < len(response) - 1:
                             st.divider()
         else:
