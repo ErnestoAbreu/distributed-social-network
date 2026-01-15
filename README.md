@@ -72,9 +72,31 @@ El cliente se une a la misma red. Mapeamos el puerto 8501 para que puedas verlo 
 
 ```bash
 docker run -d \
-  --name social-client \
+  --name client-1 \
   --network social-network \
   -p 8501:8501 \
+  -e SERVER_HOST=socialnet_server \
+  -e SERVER_PORT=50000 \
+  social-client:latest
+
+```
+
+```bash
+docker run -d \
+  --name client-2 \
+  --network social-network \
+  -p 8502:8501 \
+  -e SERVER_HOST=socialnet_server \
+  -e SERVER_PORT=50000 \
+  social-client:latest
+
+```
+
+```bash
+docker run -d \
+  --name client-3 \
+  --network social-network \
+  -p 8503:8501 \
   -e SERVER_HOST=socialnet_server \
   -e SERVER_PORT=50000 \
   social-client:latest
