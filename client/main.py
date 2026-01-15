@@ -10,7 +10,7 @@ from client.client.relations import follow_user, unfollow_user, get_followers, g
 from client.client.posts import publish, repost, get_posts, get_posts_id, get_post
 
 from client.client.constants import *
-from client.client.discoverer import start_background_check, NoServersAvailableError, NO_SERVERS_AVAILABLE_MESSAGE,
+from client.client.discoverer import start_background_check, NoServersAvailableError, NO_SERVERS_AVAILABLE_MESSAGE
 
 
 logger = logging.getLogger('socialnet.client.main')
