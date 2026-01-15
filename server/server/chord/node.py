@@ -197,11 +197,6 @@ class ChordNode(ChordServiceServicer):
             if successor and successor.address:
                 self.finger[0] = successor
                 logger.info(f"Successfully joined ring, successor is {successor.address}")
-
-                channel = grpc.insecure_channel(self.finger[0].address)
-                stub = ChordServiceStub(channel)
-                stub.UpdatePredecessor(NodeInfo(id=self.id, address=self.address), timeout=TIMEOUT)
-                channel.close()
             else:
                 logger.error("Getting successor failed")
                 logger.info("Creating new Chord ring")
@@ -216,21 +211,21 @@ class ChordNode(ChordServiceServicer):
         with self.lock:
             succ = self.finger[0] or NodeInfo(id=self.id, address=self.address)
 
-        logger.info(f"find_successor: key={key} my_id={self.id} succ={getattr(succ,'id',None)}@{getattr(succ,'address',None)}")
+        # logger.debug(f"find_successor: key={key} my_id={self.id} succ={getattr(succ,'id',None)}@{getattr(succ,'address',None)}")
 
         # If we are the only node (successor is self), return ourselves
         if succ.address == self.address:
-            logger.info("find_successor: single node ring -> return self")
+            logger.debug("find_successor: single node ring -> return self")
             return succ
         
         # If id is between us and our successor (handles wrap-around)
         if is_in_interval(key, self.id, succ.id, inclusive_end=True):
-            logger.info(f"find_successor: key in ({self.id}, {succ.id}] -> return succ {succ.address}")
+            logger.debug(f"find_successor: key {key} in ({self.id}, {succ.id}] -> return succ {succ.address}")
             return succ
         
         # Otherwise, ask the closest preceding node
         n0 = self.closest_preceding_node(key)
-        logger.info(f"find_successor: closest_preceding_node -> {n0.id}@{n0.address}")
+        # logger.debug(f"find_successor: closest_preceding_node -> {n0.id}@{n0.address}")
         if n0.address == self.address:
             # We are the closest, return our successor
             return succ
@@ -241,10 +236,10 @@ class ChordNode(ChordServiceServicer):
             stub = ChordServiceStub(channel)
             result = stub.FindSuccessor(ID(id=key), timeout=TIMEOUT)
             channel.close()
-            logger.info(f"find_successor: remote returned {result.id}@{result.address}")
+            logger.debug(f"find_successor: remote returned {result.id}@{result.address}")
             return result
         except Exception as e:
-            logger.warning(f"Remote find_successor failed: {e}")
+            logger.error(f"Remote find_successor failed: {e}")
             return succ
 
 
@@ -259,20 +254,6 @@ class ChordNode(ChordServiceServicer):
             return NodeInfo(id=self.id, address=self.address)
 
 
-    def ping_node(self, node: NodeInfo) -> bool:
-        """Ping a node to check if it's alive"""
-        if not node or node.address == self.address:
-            return True
-        try:
-            channel = grpc.insecure_channel(node.address)
-            stub = ChordServiceStub(channel)
-            stub.Ping(Empty(), timeout=TIMEOUT)
-            channel.close()
-            return True
-        except Exception:
-            return False
-
-
     def serve(self):
         logger.info(f'Starting Chord node at {self.address} with ID {self.id}')
 
@@ -284,9 +265,9 @@ class ChordNode(ChordServiceServicer):
         Stabilizer(self, STABILIZE_INTERVAL).start()
 
         self.replicator = Replicator(self, REPLICATION_INTERVAL)
+        self.replicator.start()
         # Fetch replicas from successor after joining        
         self.replicator.fetch_replicas_from_successor()
-        self.replicator.start()
 
         server.start()
         logger.info('Chord gRPC server started')

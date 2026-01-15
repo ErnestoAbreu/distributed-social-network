@@ -32,7 +32,7 @@ Write-Host "Nodo desplegado" -ForegroundColor Green
 Write-Host ""
 Write-Host "Paso 4: Desplegando nodos adicionales..." -ForegroundColor Yellow
 
-$nodes = 1..4
+$nodes = 1..1
 foreach ($i in $nodes) {
         Write-Host "Desplegando node-$i..." -ForegroundColor Cyan
         docker run -d `

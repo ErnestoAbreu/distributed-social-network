@@ -19,17 +19,21 @@ class Stabilizer(threading.Thread):
 
     def log_finger_table(self):
         try:
-            with self.node.lock:
-                fingers_snapshot = list(self.node.finger)
+            now = time.time()
+            if now - self.last_log_time >= 30:
+                with self.node.lock:
+                    fingers_snapshot = list(self.node.finger)
 
-            entries = []
-            for idx, n in enumerate(fingers_snapshot):
-                if n:
-                    entries.append(f"[{idx}]=id:{n.id}@{n.address}")
-                else:
-                    entries.append(f"[{idx}]=None")
+                entries = []
+                for idx, n in enumerate(fingers_snapshot):
+                    if n:
+                        entries.append(f"[{idx}]=id:{n.id}@{n.address}")
+                    else:
+                        entries.append(f"[{idx}]=None")
 
-            self.logger.info("Finger table: %s", ", ".join(entries))
+                self.logger.info("Finger table: %s", ", ".join(entries))
+                self.logger.info(f"Predecessor: id:{getattr(self.node.predecessor,'id',None)}@{getattr(self.node.predecessor,'address',None)}")
+                self.last_log_time = now
         except Exception as e:
             self.logger.info(f"could not log finger table: {e}")
 
@@ -134,15 +138,9 @@ class Stabilizer(threading.Thread):
                 except Exception as e:
                     self.logger.warning(f"updating finger table failed: {e}")
                     
-                # Log the current finger table for debugging/visibility (throttled to 60s)
-                try:
-                    now = time.time()
-                    if now - self.last_log_time >= 60:
-                        self.log_finger_table()
-                        self.last_log_time = now
-                except Exception as e:
-                    self.logger.info(f"could not evaluate log throttle: {e}")
-
+                # Log the current finger table for debugging/visibility (throttled to 30s)
+                self.log_finger_table()
+                
             except Exception as e:
                 self.logger.error(f"Stabilization loop error: {e}")
 
