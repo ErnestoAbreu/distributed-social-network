@@ -80,14 +80,8 @@ def _popup_warning(message: str) -> None:
 
 
 def _popup_info(message: str) -> None:
-    """Show an info message as a popup-style notification (native Streamlit).
-
-    Uses st.toast when available; falls back to st.info.
-    """
-    try:
-        st.toast(message, icon="ℹ️")
-    except Exception:
-        st.info(message)
+    """Show an info message"""
+    st.info(message)
 
 
 async def update_cache():
