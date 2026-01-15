@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import grpc
 import logging
 
@@ -9,9 +8,6 @@ from .protos.chord_pb2 import Key, KeyValue, NodeInfo
 from .protos.chord_pb2_grpc import ChordServiceStub
 
 logger = logging.getLogger('socialnet.chord.core')
-
-def get_time():
-    return datetime.now(timezone.utc).isoformat()
 
 def exists(node: ChordNode, key: str) -> tuple[bool, grpc.StatusCode | None]:
     """
@@ -129,7 +125,7 @@ def save(node: ChordNode, key: str, prototype: object) -> grpc.StatusCode | None
         serialized_value = prototype.SerializeToString().decode('latin1')
         
         if responsible_node.address == node.address:
-            node.storage.put(key, serialized_value)
+            node.storage.put(key, serialized_value, node.now_version())
             return None
         
         channel = grpc.insecure_channel(responsible_node.address)
@@ -168,7 +164,7 @@ def delete(node: ChordNode, key: str) -> grpc.StatusCode | None:
             responsible_node = NodeInfo(id=node.id, address=node.address)
         
         if responsible_node.address == node.address:
-            node.storage.delete(key)
+            node.storage.delete(key, node.now_version())
             return None
         
         channel = grpc.insecure_channel(responsible_node.address)

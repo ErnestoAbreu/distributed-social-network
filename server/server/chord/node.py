@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 import logging
+import time
 import grpc
 import threading
 from concurrent import futures
@@ -7,7 +9,7 @@ from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.threads.replicator import Replicator
 from server.server.chord.utils.utils import is_in_interval
 
-from .protos.chord_pb2 import ID, Key, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult
+from .protos.chord_pb2 import ID, Key, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult, TimeStamp
 from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_ChordServiceServicer_to_server
 
 from .utils.hashing import hash_key
@@ -127,12 +129,12 @@ class ChordNode(ChordServiceServicer):
 
 
     def Put(self, request: KeyValue, context) -> Empty:
-        self.storage.put(request.key, request.value)
+        self.storage.put(request.key, request.value, self.now_version())
         return Empty()
 
 
     def Delete(self, request: Key, context) -> Empty:
-        self.storage.delete(request.key)
+        self.storage.delete(request.key, self.now_version())
         return Empty()
 
 
@@ -183,6 +185,20 @@ class ChordNode(ChordServiceServicer):
             return PartitionResult(ok=False, partition=Partition())
 
 
+    def GetTime(self, request: Empty, context) -> TimeStamp:
+        with self.lock:
+            timestamp = time.time()
+            if self.storage.exists(EVENT_TIME):
+                stored_time = self.storage.get(EVENT_TIME)
+                timestamp = float(stored_time)
+                while time.time() < timestamp:
+                    time.sleep(0.001)
+            
+                timestamp = time.time()
+                self.storage.put(EVENT_TIME, str(timestamp))
+
+        return TimeStamp(timestamp=str(timestamp))
+    
 
     # ---------------- Chord Logic ----------------
     def join(self, known_node: NodeInfo):
@@ -252,7 +268,41 @@ class ChordNode(ChordServiceServicer):
                     return self.finger[i]
 
             return NodeInfo(id=self.id, address=self.address)
+        
 
+    def get_time(self) -> float:
+        """  Get the current time from the Chord network """
+
+        # Get current leader node
+        try:
+            n0 = self.find_successor(0)
+        except Exception as e:
+            logger.error(f"Failed to get leader node from Chord network: {e}")
+            return time.time()
+
+        if not n0.address:
+            logger.error("Failed to get time from Chord network")
+            return time.time()
+        
+        # Get time from leader node
+        try:
+            channel = grpc.insecure_channel(n0.address)
+            stub = ChordServiceStub(channel)
+            response = stub.GetTime(Empty(), timeout=TIMEOUT)
+            channel.close()
+        except Exception as e:
+            logger.error(f"Failed to get time from leader node: {e}")
+            return time.time()
+
+        return float(response.timestamp)
+
+    def get_datetime(self) -> str:
+        return datetime.fromtimestamp(self.get_time(), timezone.utc).isoformat()    
+    
+    def now_version(self) -> int:
+        """ Get current version based on Chord network time """
+        return int(self.get_time() * 1000)
+    
 
     def serve(self):
         logger.info(f'Starting Chord node at {self.address} with ID {self.id}')

@@ -17,6 +17,9 @@ service ChordService {
 
     rpc SetPartition (Partition) returns (Ack);
     rpc ResolveData (Partition) returns (PartitionResult); 
+
+
+    rpc GetTime(Empty) returns (TimeStamp);
 }
 
 
@@ -65,4 +68,8 @@ message Partition {
 message PartitionResult {
     bool ok = 1;
     Partition partition = 2;
+}
+
+message TimeStamp {
+    string timestamp = 1;
 }

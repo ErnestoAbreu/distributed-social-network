@@ -84,6 +84,11 @@ class ChordServiceStub(object):
                 request_serializer=chord__pb2.Partition.SerializeToString,
                 response_deserializer=chord__pb2.PartitionResult.FromString,
                 _registered_method=True)
+        self.GetTime = channel.unary_unary(
+                '/chord.ChordService/GetTime',
+                request_serializer=chord__pb2.Empty.SerializeToString,
+                response_deserializer=chord__pb2.TimeStamp.FromString,
+                _registered_method=True)
 
 
 class ChordServiceServicer(object):
@@ -149,6 +154,12 @@ class ChordServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetTime(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ChordServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -201,6 +212,11 @@ def add_ChordServiceServicer_to_server(servicer, server):
                     servicer.ResolveData,
                     request_deserializer=chord__pb2.Partition.FromString,
                     response_serializer=chord__pb2.PartitionResult.SerializeToString,
+            ),
+            'GetTime': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTime,
+                    request_deserializer=chord__pb2.Empty.FromString,
+                    response_serializer=chord__pb2.TimeStamp.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -473,6 +489,33 @@ class ChordService(object):
             '/chord.ChordService/ResolveData',
             chord__pb2.Partition.SerializeToString,
             chord__pb2.PartitionResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTime(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chord.ChordService/GetTime',
+            chord__pb2.Empty.SerializeToString,
+            chord__pb2.TimeStamp.FromString,
             options,
             channel_credentials,
             insecure,

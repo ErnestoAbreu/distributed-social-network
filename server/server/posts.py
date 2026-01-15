@@ -1,13 +1,10 @@
 import logging
-from multiprocessing import context
 import os
 import grpc
 import time
-import datetime
 from concurrent import futures
 
 from server.server.auth import AuthRepository
-from server.server.chord import core
 from server.server.chord.core import load, save
 from protos.models_pb2 import Post, UserPosts
 from protos.posts_pb2 import PostResponse, GetPostsResponse, RepostResponse, GetPostsIdResponse, GetPostResponse
@@ -158,7 +155,7 @@ class PostService(PostServiceServicer):
         content = request.content
 
         post_id = str(time.time_ns())
-        iso_timestamp = core.get_time()
+        iso_timestamp = self.post_repo.node.get_datetime()
 
         post = Post(post_id=post_id, user_id=user_id, content=content, timestamp=iso_timestamp, is_repost=False)
 
@@ -188,7 +185,7 @@ class PostService(PostServiceServicer):
             context.abort(grpc.StatusCode.NOT_FOUND, 'Original post not found')
 
         post_id = str(time.time_ns())
-        iso_timestamp = core.get_time()
+        iso_timestamp = self.post_repo.node.get_datetime()
         post = Post(post_id=post_id, user_id=user_id, content=original_post.content, timestamp=iso_timestamp, is_repost=True,
                     original_post_id=original_post.post_id, original_post_user_id=original_post.user_id, original_post_timestamp=original_post.timestamp)
 
