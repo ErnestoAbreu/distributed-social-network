@@ -40,7 +40,7 @@ class Stabilizer(threading.Thread):
         try:
             channel = grpc.insecure_channel(node.address)
             stub = ChordServiceStub(channel)
-            stub.Ping(Empty(), timeout=1)
+            stub.Ping(Empty(), timeout=TIMEOUT)
             channel.close()
             return True
         except Exception as e:
