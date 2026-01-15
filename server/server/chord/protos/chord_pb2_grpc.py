@@ -74,6 +74,16 @@ class ChordServiceStub(object):
                 request_serializer=chord__pb2.Empty.SerializeToString,
                 response_deserializer=chord__pb2.KeyValueList.FromString,
                 _registered_method=True)
+        self.SetPartition = channel.unary_unary(
+                '/chord.ChordService/SetPartition',
+                request_serializer=chord__pb2.Partition.SerializeToString,
+                response_deserializer=chord__pb2.Ack.FromString,
+                _registered_method=True)
+        self.ResolveData = channel.unary_unary(
+                '/chord.ChordService/ResolveData',
+                request_serializer=chord__pb2.Partition.SerializeToString,
+                response_deserializer=chord__pb2.PartitionResult.FromString,
+                _registered_method=True)
 
 
 class ChordServiceServicer(object):
@@ -127,6 +137,18 @@ class ChordServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetPartition(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResolveData(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ChordServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -169,6 +191,16 @@ def add_ChordServiceServicer_to_server(servicer, server):
                     servicer.GetAllKeys,
                     request_deserializer=chord__pb2.Empty.FromString,
                     response_serializer=chord__pb2.KeyValueList.SerializeToString,
+            ),
+            'SetPartition': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetPartition,
+                    request_deserializer=chord__pb2.Partition.FromString,
+                    response_serializer=chord__pb2.Ack.SerializeToString,
+            ),
+            'ResolveData': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResolveData,
+                    request_deserializer=chord__pb2.Partition.FromString,
+                    response_serializer=chord__pb2.PartitionResult.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -387,6 +419,60 @@ class ChordService(object):
             '/chord.ChordService/GetAllKeys',
             chord__pb2.Empty.SerializeToString,
             chord__pb2.KeyValueList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetPartition(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chord.ChordService/SetPartition',
+            chord__pb2.Partition.SerializeToString,
+            chord__pb2.Ack.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResolveData(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chord.ChordService/ResolveData',
+            chord__pb2.Partition.SerializeToString,
+            chord__pb2.PartitionResult.FromString,
             options,
             channel_credentials,
             insecure,

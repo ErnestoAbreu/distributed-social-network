@@ -24,13 +24,19 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x63hord.proto\x12\x05\x63hord\"\x07\n\x05\x45mpty\"\x10\n\x02ID\x12\n\n\x02id\x18\x01 \x01(\x04\"\x12\n\x03Key\x12\x0b\n\x03key\x18\x01 \x01(\t\"\x16\n\x05Value\x12\r\n\x05value\x18\x01 \x01(\t\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\".\n\x0cKeyValueList\x12\x1e\n\x05items\x18\x01 \x03(\x0b\x32\x0f.chord.KeyValue\"\'\n\x08NodeInfo\x12\n\n\x02id\x18\x01 \x01(\x04\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t2\xdf\x02\n\x0c\x43hordService\x12*\n\x0cGetSuccessor\x12\t.chord.ID\x1a\x0f.chord.NodeInfo\x12/\n\x0eGetPredecessor\x12\x0c.chord.Empty\x1a\x0f.chord.NodeInfo\x12\x32\n\x11UpdatePredecessor\x12\x0f.chord.NodeInfo\x1a\x0c.chord.Empty\x12\"\n\x04Ping\x12\x0c.chord.Empty\x1a\x0c.chord.Empty\x12\x1f\n\x03Get\x12\n.chord.Key\x1a\x0c.chord.Value\x12$\n\x03Put\x12\x0f.chord.KeyValue\x1a\x0c.chord.Empty\x12\"\n\x06\x44\x65lete\x12\n.chord.Key\x1a\x0c.chord.Empty\x12/\n\nGetAllKeys\x12\x0c.chord.Empty\x1a\x13.chord.KeyValueListb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x63hord.proto\x12\x05\x63hord\"\x07\n\x05\x45mpty\"\x10\n\x02ID\x12\n\n\x02id\x18\x01 \x01(\x04\"\x12\n\x03Key\x12\x0b\n\x03key\x18\x01 \x01(\t\"\x16\n\x05Value\x12\r\n\x05value\x18\x01 \x01(\t\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\".\n\x0cKeyValueList\x12\x1e\n\x05items\x18\x01 \x03(\x0b\x32\x0f.chord.KeyValue\"\'\n\x08NodeInfo\x12\n\n\x02id\x18\x01 \x01(\x04\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\"\x11\n\x03\x41\x63k\x12\n\n\x02ok\x18\x01 \x01(\x08\"\xab\x02\n\tPartition\x12,\n\x06values\x18\x01 \x03(\x0b\x32\x1c.chord.Partition.ValuesEntry\x12\x30\n\x08versions\x18\x02 \x03(\x0b\x32\x1e.chord.Partition.VersionsEntry\x12.\n\x07removed\x18\x03 \x03(\x0b\x32\x1d.chord.Partition.RemovedEntry\x1a-\n\x0bValuesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1a/\n\rVersionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x04:\x02\x38\x01\x1a.\n\x0cRemovedEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x04:\x02\x38\x01\"B\n\x0fPartitionResult\x12\n\n\x02ok\x18\x01 \x01(\x08\x12#\n\tpartition\x18\x02 \x01(\x0b\x32\x10.chord.Partition2\xc6\x03\n\x0c\x43hordService\x12*\n\x0cGetSuccessor\x12\t.chord.ID\x1a\x0f.chord.NodeInfo\x12/\n\x0eGetPredecessor\x12\x0c.chord.Empty\x1a\x0f.chord.NodeInfo\x12\x32\n\x11UpdatePredecessor\x12\x0f.chord.NodeInfo\x1a\x0c.chord.Empty\x12\"\n\x04Ping\x12\x0c.chord.Empty\x1a\x0c.chord.Empty\x12\x1f\n\x03Get\x12\n.chord.Key\x1a\x0c.chord.Value\x12$\n\x03Put\x12\x0f.chord.KeyValue\x1a\x0c.chord.Empty\x12\"\n\x06\x44\x65lete\x12\n.chord.Key\x1a\x0c.chord.Empty\x12/\n\nGetAllKeys\x12\x0c.chord.Empty\x1a\x13.chord.KeyValueList\x12,\n\x0cSetPartition\x12\x10.chord.Partition\x1a\n.chord.Ack\x12\x37\n\x0bResolveData\x12\x10.chord.Partition\x1a\x16.chord.PartitionResultb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'chord_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
+  _globals['_PARTITION_VALUESENTRY']._loaded_options = None
+  _globals['_PARTITION_VALUESENTRY']._serialized_options = b'8\001'
+  _globals['_PARTITION_VERSIONSENTRY']._loaded_options = None
+  _globals['_PARTITION_VERSIONSENTRY']._serialized_options = b'8\001'
+  _globals['_PARTITION_REMOVEDENTRY']._loaded_options = None
+  _globals['_PARTITION_REMOVEDENTRY']._serialized_options = b'8\001'
   _globals['_EMPTY']._serialized_start=22
   _globals['_EMPTY']._serialized_end=29
   _globals['_ID']._serialized_start=31
@@ -45,6 +51,18 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_KEYVALUELIST']._serialized_end=179
   _globals['_NODEINFO']._serialized_start=181
   _globals['_NODEINFO']._serialized_end=220
-  _globals['_CHORDSERVICE']._serialized_start=223
-  _globals['_CHORDSERVICE']._serialized_end=574
+  _globals['_ACK']._serialized_start=222
+  _globals['_ACK']._serialized_end=239
+  _globals['_PARTITION']._serialized_start=242
+  _globals['_PARTITION']._serialized_end=541
+  _globals['_PARTITION_VALUESENTRY']._serialized_start=399
+  _globals['_PARTITION_VALUESENTRY']._serialized_end=444
+  _globals['_PARTITION_VERSIONSENTRY']._serialized_start=446
+  _globals['_PARTITION_VERSIONSENTRY']._serialized_end=493
+  _globals['_PARTITION_REMOVEDENTRY']._serialized_start=495
+  _globals['_PARTITION_REMOVEDENTRY']._serialized_end=541
+  _globals['_PARTITIONRESULT']._serialized_start=543
+  _globals['_PARTITIONRESULT']._serialized_end=609
+  _globals['_CHORDSERVICE']._serialized_start=612
+  _globals['_CHORDSERVICE']._serialized_end=1066
 # @@protoc_insertion_point(module_scope)

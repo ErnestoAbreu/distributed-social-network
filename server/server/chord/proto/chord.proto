@@ -14,6 +14,9 @@ service ChordService {
     rpc Delete (Key) returns (Empty);
 
     rpc GetAllKeys (Empty) returns (KeyValueList);
+
+    rpc SetPartition (Partition) returns (Ack);
+    rpc ResolveData (Partition) returns (PartitionResult); 
 }
 
 
@@ -47,4 +50,19 @@ message KeyValueList {
 message NodeInfo {
     uint64 id = 1;
     string address = 2;
+}
+
+message Ack {
+    bool ok = 1;
+}
+
+message Partition {
+    map<string, string> values = 1;
+    map<string, uint64> versions = 2;
+    map<string, uint64> removed = 3;
+}
+
+message PartitionResult {
+    bool ok = 1;
+    Partition partition = 2;
 }
