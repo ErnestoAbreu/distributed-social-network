@@ -69,6 +69,11 @@ class ChordServiceStub(object):
                 request_serializer=chord__pb2.Key.SerializeToString,
                 response_deserializer=chord__pb2.Empty.FromString,
                 _registered_method=True)
+        self.GetAllKeys = channel.unary_unary(
+                '/chord.ChordService/GetAllKeys',
+                request_serializer=chord__pb2.Empty.SerializeToString,
+                response_deserializer=chord__pb2.KeyValueList.FromString,
+                _registered_method=True)
 
 
 class ChordServiceServicer(object):
@@ -116,6 +121,12 @@ class ChordServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetAllKeys(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ChordServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -153,6 +164,11 @@ def add_ChordServiceServicer_to_server(servicer, server):
                     servicer.Delete,
                     request_deserializer=chord__pb2.Key.FromString,
                     response_serializer=chord__pb2.Empty.SerializeToString,
+            ),
+            'GetAllKeys': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAllKeys,
+                    request_deserializer=chord__pb2.Empty.FromString,
+                    response_serializer=chord__pb2.KeyValueList.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -344,6 +360,33 @@ class ChordService(object):
             '/chord.ChordService/Delete',
             chord__pb2.Key.SerializeToString,
             chord__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAllKeys(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/chord.ChordService/GetAllKeys',
+            chord__pb2.Empty.SerializeToString,
+            chord__pb2.KeyValueList.FromString,
             options,
             channel_credentials,
             insecure,

@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x63hord.proto\x12\x05\x63hord\"\x07\n\x05\x45mpty\"\x10\n\x02ID\x12\n\n\x02id\x18\x01 \x01(\x04\"\x12\n\x03Key\x12\x0b\n\x03key\x18\x01 \x01(\t\"\x16\n\x05Value\x12\r\n\x05value\x18\x01 \x01(\t\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\"\'\n\x08NodeInfo\x12\n\n\x02id\x18\x01 \x01(\x04\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t2\xae\x02\n\x0c\x43hordService\x12*\n\x0cGetSuccessor\x12\t.chord.ID\x1a\x0f.chord.NodeInfo\x12/\n\x0eGetPredecessor\x12\x0c.chord.Empty\x1a\x0f.chord.NodeInfo\x12\x32\n\x11UpdatePredecessor\x12\x0f.chord.NodeInfo\x1a\x0c.chord.Empty\x12\"\n\x04Ping\x12\x0c.chord.Empty\x1a\x0c.chord.Empty\x12\x1f\n\x03Get\x12\n.chord.Key\x1a\x0c.chord.Value\x12$\n\x03Put\x12\x0f.chord.KeyValue\x1a\x0c.chord.Empty\x12\"\n\x06\x44\x65lete\x12\n.chord.Key\x1a\x0c.chord.Emptyb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x63hord.proto\x12\x05\x63hord\"\x07\n\x05\x45mpty\"\x10\n\x02ID\x12\n\n\x02id\x18\x01 \x01(\x04\"\x12\n\x03Key\x12\x0b\n\x03key\x18\x01 \x01(\t\"\x16\n\x05Value\x12\r\n\x05value\x18\x01 \x01(\t\"&\n\x08KeyValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\".\n\x0cKeyValueList\x12\x1e\n\x05items\x18\x01 \x03(\x0b\x32\x0f.chord.KeyValue\"\'\n\x08NodeInfo\x12\n\n\x02id\x18\x01 \x01(\x04\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t2\xdf\x02\n\x0c\x43hordService\x12*\n\x0cGetSuccessor\x12\t.chord.ID\x1a\x0f.chord.NodeInfo\x12/\n\x0eGetPredecessor\x12\x0c.chord.Empty\x1a\x0f.chord.NodeInfo\x12\x32\n\x11UpdatePredecessor\x12\x0f.chord.NodeInfo\x1a\x0c.chord.Empty\x12\"\n\x04Ping\x12\x0c.chord.Empty\x1a\x0c.chord.Empty\x12\x1f\n\x03Get\x12\n.chord.Key\x1a\x0c.chord.Value\x12$\n\x03Put\x12\x0f.chord.KeyValue\x1a\x0c.chord.Empty\x12\"\n\x06\x44\x65lete\x12\n.chord.Key\x1a\x0c.chord.Empty\x12/\n\nGetAllKeys\x12\x0c.chord.Empty\x1a\x13.chord.KeyValueListb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -41,8 +41,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_VALUE']._serialized_end=91
   _globals['_KEYVALUE']._serialized_start=93
   _globals['_KEYVALUE']._serialized_end=131
-  _globals['_NODEINFO']._serialized_start=133
-  _globals['_NODEINFO']._serialized_end=172
-  _globals['_CHORDSERVICE']._serialized_start=175
-  _globals['_CHORDSERVICE']._serialized_end=477
+  _globals['_KEYVALUELIST']._serialized_start=133
+  _globals['_KEYVALUELIST']._serialized_end=179
+  _globals['_NODEINFO']._serialized_start=181
+  _globals['_NODEINFO']._serialized_end=220
+  _globals['_CHORDSERVICE']._serialized_start=223
+  _globals['_CHORDSERVICE']._serialized_end=574
 # @@protoc_insertion_point(module_scope)
