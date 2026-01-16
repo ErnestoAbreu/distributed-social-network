@@ -62,6 +62,8 @@ class Stabilizer(threading.Thread):
             if finger and finger.address != self.node.address:
                 if self._ping_node(finger):
                     return finger
+                else:
+                    finger = None  # Mark as dead
                 
         self.logger.warning(f"Node is isolated {self.node.address}, no alive successors found")
                 
