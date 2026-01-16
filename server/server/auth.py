@@ -3,6 +3,7 @@ import os
 import grpc
 import jwt
 import datetime
+from datetime import timezone
 
 from concurrent import futures
 
@@ -105,7 +106,7 @@ class AuthService(AuthServiceServicer):
         return LoginResponse(token=token)
 
     def gen_token(self, user):
-        expiration = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat()
+        expiration = (datetime.datetime.now(timezone.utc) + datetime.timedelta(hours=24)).isoformat()
 
         payload = {
             'user_id': user.user_id,
