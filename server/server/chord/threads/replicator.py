@@ -27,21 +27,33 @@ class Replicator(threading.Thread):
     def _local_deleted_version(self, key: str) -> int:
         return self.node.storage.get_deleted_version(key)
 
-    def _remote_get_str(self, node, key: str) -> str:
+    def _remote_get_str(self, node, key: str) -> Tuple[Optional[str], bool]:
+        """Get value from remote node. Returns (value, success) tuple.
+        Returns (None, False) if node is unreachable, (value, True) if successful."""
+        if not node or not node.address:
+            return None, False
+            
         channel = grpc.insecure_channel(node.address)
         try:
             stub = ChordServiceStub(channel)
             resp = stub.Get(Key(key=key), timeout=TIMEOUT)
-            return resp.value if resp and resp.value is not None else ""
+            return resp.value if resp and resp.value is not None else "", True
+        except Exception as e:
+            self.logger.debug(f"Failed to get {key} from {node.address}: {e}")
+            return None, False
         finally:
             channel.close()
 
-    def _remote_get_int(self, node, key: str) -> int:
-        raw = self._remote_get_str(node, key)
+    def _remote_get_int(self, node, key: str) -> Tuple[int, bool]:
+        """Get int value from remote node. Returns (value, success) tuple.
+        Returns (0, False) if node is unreachable, (value, True) if successful."""
+        raw, success = self._remote_get_str(node, key)
+        if not success:
+            return 0, False
         try:
-            return int(raw) if raw else 0
+            return int(raw) if raw else 0, True
         except Exception:
-            return 0
+            return 0, True
 
     def _replicate_put(self, node, key: str, value: str):
         channel = grpc.insecure_channel(node.address)
@@ -85,7 +97,8 @@ class Replicator(threading.Thread):
             channel.close()
 
     def get_successor_list(self, count=REPLICATION_K):
-        """Get a list of the next 'count' successor nodes for replication"""
+        """Get a list of the next 'count' successor nodes for replication.
+        Continues trying even if some nodes fail to maximize number of replicas."""
         successors = []
 
         with self.node.lock:
@@ -94,11 +107,15 @@ class Replicator(threading.Thread):
         if not current or current.address == self.node.address:
             return successors
         
-        # Start with inmediate successor
+        # Start with immediate successor
         successors.append(current)
 
         # Get additional successors by querying each node for its successor
-        for _ in range(count - 1):
+        # Try multiple times even if some nodes fail
+        for attempt in range(count * 2):
+            if len(successors) >= count:
+                break
+                
             try:
                 if not current or current.address == self.node.address:
                     break
@@ -119,13 +136,11 @@ class Replicator(threading.Thread):
                     break
 
             except Exception as e:
-                self.logger.warning(f"Failed to get successor from {current.address}: {e}")
-                break
-        
+                self.logger.debug(f"Failed to get successor from {current.address}: {e}. Trying to continue...")
         return successors
     
     def ping_node(self, node):
-        """Check if a node is alive with a short timeout"""
+        """Check if a node is alive with a short timeout. Retries once on failure."""
         if not node or not node.address:
             return False
         try:
@@ -166,12 +181,17 @@ class Replicator(threading.Thread):
             f"Replicating {len(base_items)} keys + {len(deleted_items)} tombstones to {len(alive_successors)} alive successors"
         )
 
+        failed_replications = {}
+
         for key in base_items.keys():
             for successor in alive_successors:
                 try:
                     self._replicate_set_to_node(successor, key)
                 except Exception as e:
                     self.logger.error(f"Failed to replicate set {key} to {successor.address}: {e}")
+                    if successor.address not in failed_replications:
+                        failed_replications[successor.address] = []
+                    failed_replications[successor.address].append(('set', key))
 
         for key in deleted_items.keys():
             for successor in alive_successors:
@@ -179,6 +199,12 @@ class Replicator(threading.Thread):
                     self._replicate_remove_to_node(successor, key)
                 except Exception as e:
                     self.logger.error(f"Failed to replicate delete {key} to {successor.address}: {e}")
+                    if successor.address not in failed_replications:
+                        failed_replications[successor.address] = []
+                    failed_replications[successor.address].append(('remove', key))
+        
+        if failed_replications:
+            self.logger.warning(f"Replication failures: {failed_replications}")
 
     def _replicate_set_to_node(self, node, key: str):
         local_ver = self._local_version(key)
@@ -191,12 +217,15 @@ class Replicator(threading.Thread):
         if value is None:
             return
 
-        remote_ver = self._remote_get_int(node, meta_ver_key(key))
-        remote_del = self._remote_get_int(node, meta_del_key(key))
+        remote_ver, remote_ver_ok = self._remote_get_int(node, meta_ver_key(key))
+        remote_del, remote_del_ok = self._remote_get_int(node, meta_del_key(key))
 
-        if local_ver <= remote_ver:
+        if not remote_ver_ok or not remote_del_ok:
+            self.logger.debug(f"Cannot reliably get version info from {node.address}, will attempt replication anyway")
+
+        if remote_ver_ok and local_ver <= remote_ver:
             return
-        if remote_del >= local_ver:
+        if remote_del_ok and remote_del >= local_ver:
             return
 
         self._replicate_put(node, key, value)
@@ -211,12 +240,15 @@ class Replicator(threading.Thread):
         if local_del <= 0:
             return
 
-        remote_del = self._remote_get_int(node, meta_del_key(key))
-        remote_ver = self._remote_get_int(node, meta_ver_key(key))
+        remote_del, remote_del_ok = self._remote_get_int(node, meta_del_key(key))
+        remote_ver, remote_ver_ok = self._remote_get_int(node, meta_ver_key(key))
 
-        if local_del <= remote_del:
+        if not remote_del_ok or not remote_ver_ok:
+            self.logger.debug(f"Cannot reliably get version info from {node.address}, will attempt deletion anyway")
+
+        if remote_del_ok and local_del <= remote_del:
             return
-        if local_del < remote_ver:
+        if remote_ver_ok and local_del < remote_ver:
             return
 
         try:
@@ -477,16 +509,47 @@ class Replicator(threading.Thread):
         """Aggressively fetch all relevant data when joining the network"""
         self.logger.info("Starting initial replication sync...")
         
-        # Fetch from all available successors
-        self.fetch_replicas_from_successors()
+        # Collect all unique nodes in the ring to fetch from
+        nodes_to_fetch = set()
         
-        # Also fetch from predecessor if available (we might need to replicate their data)
+        # Get successors
+        successors = self.get_successor_list(REPLICATION_K)
+        for succ in successors:
+            if succ and succ.address != self.node.address:
+                nodes_to_fetch.add(succ.address)
+        
+        # Get predecessor
         with self.node.lock:
             predecessor = self.node.predecessor
-        
         if predecessor and predecessor.address != self.node.address:
+            nodes_to_fetch.add(predecessor.address)
+        
+        # Try to discover other nodes in the ring by querying successors
+        for succ in successors[:2]:  # Query first 2 successors for their predecessors
+            if not succ or succ.address == self.node.address:
+                continue
             try:
-                channel = grpc.insecure_channel(predecessor.address)
+                channel = grpc.insecure_channel(succ.address)
+                try:
+                    stub = ChordServiceStub(channel)
+                    pred = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
+                    if pred and pred.address != self.node.address and pred.address != succ.address:
+                        nodes_to_fetch.add(pred.address)
+                finally:
+                    channel.close()
+            except Exception as e:
+                self.logger.debug(f"Could not get predecessor from {succ.address}: {e}")
+        
+        self.logger.info(f"Fetching data from {len(nodes_to_fetch)} nodes: {nodes_to_fetch}")
+        
+        # Fetch from all discovered nodes
+        all_incoming_values: Dict[str, str] = {}
+        all_incoming_versions: Dict[str, int] = {}
+        all_incoming_removed: Dict[str, int] = {}
+        
+        for node_addr in nodes_to_fetch:
+            try:
+                channel = grpc.insecure_channel(node_addr)
                 try:
                     stub = ChordServiceStub(channel)
                     response = stub.GetAllKeys(Empty(), timeout=TIMEOUT)
@@ -496,51 +559,103 @@ class Replicator(threading.Thread):
                 if response and response.items:
                     payload = {kv.key: kv.value for kv in response.items}
                     
-                    incoming_values: Dict[str, str] = {}
-                    incoming_versions: Dict[str, int] = {}
-                    incoming_removed: Dict[str, int] = {}
-                    
                     for k, v in payload.items():
                         if k.startswith("__meta_ver__"):
                             bk = base_key_from_meta(k)
                             try:
-                                incoming_versions[bk] = int(v) if v else 0
+                                ver = int(v) if v else 0
+                                # Keep highest version
+                                if bk not in all_incoming_versions or ver > all_incoming_versions[bk]:
+                                    all_incoming_versions[bk] = ver
                             except Exception:
-                                incoming_versions[bk] = 0
+                                pass
                         elif k.startswith("__meta_del__"):
                             bk = base_key_from_meta(k)
                             try:
-                                incoming_removed[bk] = int(v) if v else 0
+                                ver = int(v) if v else 0
+                                # Keep highest deleted version
+                                if bk not in all_incoming_removed or ver > all_incoming_removed[bk]:
+                                    all_incoming_removed[bk] = ver
                             except Exception:
-                                incoming_removed[bk] = 0
+                                pass
                         else:
-                            incoming_values[k] = v
+                            # For values, keep the one with highest version
+                            if k not in all_incoming_values:
+                                all_incoming_values[k] = v
+                            else:
+                                # Compare versions
+                                current_ver = all_incoming_versions.get(k, 0)
+                                try:
+                                    # Get version for this value from the same payload
+                                    new_ver_key = meta_ver_key(k)
+                                    if new_ver_key in payload:
+                                        new_ver = int(payload[new_ver_key])
+                                        if new_ver > current_ver:
+                                            all_incoming_values[k] = v
+                                except Exception:
+                                    pass
                     
-                    # Filter: only keep keys we're responsible for
-                    filtered_values = {}
-                    filtered_versions = {}
-                    filtered_removed = {}
-                    
-                    for key in incoming_values.keys():
-                        key_hash = hash_key(key, self.node.id.bit_length())
-                        responsible = self.node.find_successor(key_hash)
-                        if responsible.address == self.node.address:
-                            filtered_values[key] = incoming_values[key]
-                            if key in incoming_versions:
-                                filtered_versions[key] = incoming_versions[key]
-                    
-                    for key in incoming_removed.keys():
-                        key_hash = hash_key(key, self.node.id.bit_length())
-                        responsible = self.node.find_successor(key_hash)
-                        if responsible.address == self.node.address:
-                            filtered_removed[key] = incoming_removed[key]
-                    
-                    if filtered_values or filtered_removed:
-                        self.set_partition(filtered_values, filtered_versions, filtered_removed)
-                        self.logger.info(f"Acquired {len(filtered_values)} keys from predecessor")
+                    self.logger.info(f"Fetched {len([k for k in payload.keys() if not is_meta_key(k)])} keys from {node_addr}")
                         
             except Exception as e:
-                self.logger.error(f"Failed to fetch from predecessor: {e}")
+                self.logger.error(f"Failed to fetch from {node_addr}: {e}")
+        
+        # Now filter: only keep keys we're responsible for OR should replicate
+        filtered_values = {}
+        filtered_versions = {}
+        filtered_removed = {}
+        
+        for key in all_incoming_values.keys():
+            try:
+                key_hash = hash_key(key, self.node.id.bit_length())
+                responsible = self.node.find_successor(key_hash)
+                
+                # Keep if we're responsible OR if we're a replica holder
+                should_keep = False
+                if responsible.address == self.node.address:
+                    should_keep = True
+                else:
+                    # Check if we're in the first K successors (replica holder)
+                    try:
+                        channel = grpc.insecure_channel(responsible.address)
+                        try:
+                            stub = ChordServiceStub(channel)
+                            current = responsible
+                            for _ in range(REPLICATION_K - 1):
+                                next_resp = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                                if next_resp and next_resp.address == self.node.address:
+                                    should_keep = True
+                                    break
+                                if not next_resp or next_resp.address == responsible.address:
+                                    break
+                                current = next_resp
+                        finally:
+                            channel.close()
+                    except Exception:
+                        pass
+                
+                if should_keep:
+                    filtered_values[key] = all_incoming_values[key]
+                    if key in all_incoming_versions:
+                        filtered_versions[key] = all_incoming_versions[key]
+                        
+            except Exception as e:
+                self.logger.warning(f"Error determining responsibility for key {key}: {e}")
+        
+        for key in all_incoming_removed.keys():
+            try:
+                key_hash = hash_key(key, self.node.id.bit_length())
+                responsible = self.node.find_successor(key_hash)
+                if responsible.address == self.node.address:
+                    filtered_removed[key] = all_incoming_removed[key]
+            except Exception as e:
+                self.logger.warning(f"Error determining responsibility for deleted key {key}: {e}")
+        
+        if filtered_values or filtered_removed:
+            self.set_partition(filtered_values, filtered_versions, filtered_removed)
+            self.logger.info(f"Acquired {len(filtered_values)} keys and {len(filtered_removed)} tombstones from network")
+        else:
+            self.logger.info("No keys acquired during initial sync")
         
         self.logger.info("Initial sync completed")
 
