@@ -397,8 +397,8 @@ def relationships_view():
             else:
                 try:
                     with st.spinner(f'🔄 Following @{user_to_follow}...'):
-                        response = follow_user(
-                            st.session_state.logged_user, user_to_follow, token)
+                        response = asyncio.run(follow_user(
+                            st.session_state.logged_user, user_to_follow, token))
                 except NoServersAvailableError as e:
                     _handle_no_servers(e)
                     response = None
@@ -461,11 +461,11 @@ def relationships_view():
                         if follow_back and not already_following:
                             try:
                                 with st.spinner(f"🔄 Following @{follower}..."):
-                                    follow_response = follow_user(
+                                    follow_response = asyncio.run(follow_user(
                                         st.session_state.logged_user,
                                         follower,
                                         token,
-                                    )
+                                    ))
                             except NoServersAvailableError as e:
                                 _handle_no_servers(e)
                                 follow_response = None
@@ -515,6 +515,38 @@ def relationships_view():
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.markdown(f"#### 👤 @{following}")
+                        # with col2:
+                        #     unfollow_btn = st.button(
+                        #         "➖ Unfollow",
+                        #         use_container_width=True,
+                        #         key=f"unfollow_{idx}_{following}",
+                        #         help="Unfollow this user",
+                        #         type="secondary"
+                        #     )
+                        
+                        # if unfollow_btn:
+                        #     try:
+                        #         with st.spinner(f"🔄 Unfollowing @{following}..."):
+                        #             unfollow_response = asyncio.run(unfollow_user(
+                        #                 st.session_state.logged_user,
+                        #                 following,
+                        #                 token,
+                        #             ))
+                        #     except NoServersAvailableError as e:
+                        #         _handle_no_servers(e)
+                        #         unfollow_response = None
+
+                        #     if unfollow_response and unfollow_response.success:
+                        #         st.success(f"✅ **You unfollowed @{following}!**")
+                        #         st.rerun()
+                        #     else:
+                        #         error_msg = (
+                        #             unfollow_response.message
+                        #             if unfollow_response
+                        #             else 'Unknown error'
+                        #         )
+                        #         _popup_error(f"❌ **Could not unfollow user** - {error_msg}")
+                        
                         if idx < len(response) - 1:
                             st.divider()
         else:

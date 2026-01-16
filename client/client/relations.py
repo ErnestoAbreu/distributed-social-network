@@ -14,23 +14,35 @@ logger = logging.getLogger('socialnet.client.relations')
 logger.setLevel(logging.INFO)
 
 @retry_on_failure()
-def follow_user(follower_id, followed_id, token):
+async def follow_user(follower_id, followed_id, token):
     host = get_host(RELATIONS)
     channel = get_authenticated_channel(host, token)
     stub = RelationsServiceStub(channel)
     request = FollowRequest(follower_id=follower_id, followed_id=followed_id)
     
     response = stub.Follow(request)
+    
+    if response and response.success:
+        await FileCache.delete(f'{follower_id}_following')
+        await FileCache.delete(f'{followed_id}_followers')
+        logger.info(f'Cache invalidated after following: {follower_id} -> {followed_id}')
+    
     return response
     
 @retry_on_failure()
-def unfollow_user(follower_id, followed_id, token):
+async def unfollow_user(follower_id, followed_id, token):
     host = get_host(RELATIONS)
     channel = get_authenticated_channel(host, token)
     stub = RelationsServiceStub(channel)
-    request = UnfollowRequest(follower_id=follower_id, followed_id=followed_id)
+    request = UnfollowRequest(follower_id=follower_id, unfollowed_id=followed_id)
     
     response = stub.Unfollow(request)
+    
+    if response and response.success:
+        await FileCache.delete(f'{follower_id}_following')
+        await FileCache.delete(f'{followed_id}_followers')
+        logger.info(f'Cache invalidated after unfollowing: {follower_id} -> {followed_id}')
+    
     return response
 
 async def get_followers(username, token, request = True):
