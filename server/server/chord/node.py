@@ -209,9 +209,11 @@ class ChordNode(ChordServiceServicer):
             logger.info(f"Joining Chord ring via node {known_node.address}")
 
             channel = grpc.insecure_channel(known_node.address)
-            stub = ChordServiceStub(channel)
-            successor = stub.FindSuccessor(ID(id=self.id), timeout=TIMEOUT)
-            channel.close()
+            try:
+                stub = ChordServiceStub(channel)
+                successor = stub.FindSuccessor(ID(id=self.id), timeout=TIMEOUT_FIND_SUCCESSOR)
+            finally:
+                channel.close()
 
             if successor and successor.address:
                 self.finger[0] = successor
@@ -252,13 +254,15 @@ class ChordNode(ChordServiceServicer):
         # Remote call to find successor
         try:
             channel = grpc.insecure_channel(n0.address)
-            stub = ChordServiceStub(channel)
-            result = stub.FindSuccessor(ID(id=key), timeout=TIMEOUT)
-            channel.close()
+            try:
+                stub = ChordServiceStub(channel)
+                result = stub.FindSuccessor(ID(id=key), timeout=TIMEOUT_FIND_SUCCESSOR)
+            finally:
+                channel.close()
             logger.debug(f"find_successor: remote returned {result.id}@{result.address}")
             return result
         except Exception as e:
-            logger.error(f"Remote find_successor failed: {e}")
+            logger.warning(f"Remote find_successor failed: {e}")
             return succ
 
 
