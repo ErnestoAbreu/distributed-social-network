@@ -74,6 +74,7 @@ El cliente se une a la misma red. Mapeamos el puerto 8501 para que puedas verlo 
 docker run -d \
   --name client-1 \
   --network social-network \
+  --network-alias socialnet_client \
   -p 8501:8501 \
   -e SERVER_HOST=socialnet_server \
   -e SERVER_PORT=50000 \
@@ -85,6 +86,7 @@ docker run -d \
 docker run -d \
   --name client-2 \
   --network social-network \
+  --network-alias socialnet_client \
   -p 8502:8501 \
   -e SERVER_HOST=socialnet_server \
   -e SERVER_PORT=50000 \
@@ -96,6 +98,7 @@ docker run -d \
 docker run -d \
   --name client-3 \
   --network social-network \
+  --network-alias socialnet_client \
   -p 8503:8501 \
   -e SERVER_HOST=socialnet_server \
   -e SERVER_PORT=50000 \
@@ -109,7 +112,7 @@ docker run -d \
 
 **Cómo probar:**
 
-1. Abre tu navegador en `http://localhost:8501`.
+1. Abre tu navegador en `http://localhost:850x`, segun el cliente.
 2. Deberías ver la interfaz de Login.
 3. Si intentas registrarte, el cliente buscará `socialnet_server`, encontrará uno de los nodos (node-1, 2 o 3) y enviará la petición gRPC.
 
@@ -121,76 +124,7 @@ docker run -d \
 **Cómo borrar todo para volver a empezar:**
 
 ```bash
-docker rm -f node-1 node-2 node-3 social-client
+docker rm -f node-1 node-2 node-3 client-1 client-2 client-3
 docker network rm social-network
 
 ```
-
-### Chequear estado de puertos desde el cliente
-
-Auth
-
-```bash
-docker exec social-client python3 -c "import socket; s = socket.socket(); s.settimeout(2); print('PUERTO ABIERTO' if s.connect_ex(('10.0.1.2', 50000)) == 0 else 'PUERTO CERRADO')"
-```
-
-Post:
-
-```bash
-docker exec social-client python3 -c "import socket; s = socket.socket(); s.settimeout(2); print('PUERTO ABIERTO' if s.connect_ex(('10.0.1.2', 50001)) == 0 else 'PUERTO CERRADO')"
-```
-
-Relations:
-
-```bash
-docker exec social-client python3 -c "import socket; s = socket.socket(); s.settimeout(2); print('PUERTO ABIERTO' if s.connect_ex(('10.0.1.2', 50002)) == 0 else 'PUERTO CERRADO')"
-```
-
-### Estructura de carpetas y archivos
-
-client
---client
-----auth.py
-----discoverer.py
-----file_cache.py
-----posts.py
-----relations.py
---main.py
---__init__.py
---requirements.txt
-proto
---auth.proto
---models.proto
---posts.proto
---relations.proto
-protos
---auth_pb2_grpc.py
---auth_pb2.py
---models_pb2_grpc.py
---models_pb2.py
---posts_pb2_grpc.py
---posts_pb2.py
---relations_pb2_grpc.py
---relations_pb2.py
-scripts
---gen_protos.sh
-server
---server
-----chord
-------chord_db.py
-------chord_discoverer.py
-------chord_elector.py
-------chord_list.py
-------chord_replicator.py
-------chord_timer.py
-------constants.py
-------finger_table.py
-------node.py
-------utils.py
-----auth.py
-----config.py
-----posts.py
-----relations.py
-----utils.py
---main.py
---requirements.txt
