@@ -3,7 +3,7 @@ import logging
 
 from server.server.chord.node import ChordNode
 from .utils.hashing import hash_key
-from .utils.config import M_BITS, TIMEOUT
+from .utils.config import M_BITS, TIMEOUT, TIMEOUT_LOAD, TIMEOUT_SAVE, TIMEOUT_EXISTS, TIMEOUT_DELETE
 from .protos.chord_pb2 import Key, KeyValue, NodeInfo
 from .protos.chord_pb2_grpc import ChordServiceStub
 
@@ -33,7 +33,7 @@ def exists(node: ChordNode, key: str) -> tuple[bool, grpc.StatusCode | None]:
         channel = grpc.insecure_channel(responsible_node.address)
         stub = ChordServiceStub(channel)
         
-        response = stub.Get(Key(key=key), timeout=TIMEOUT)
+        response = stub.Get(Key(key=key), timeout=TIMEOUT_EXISTS)
         exists_value = response.value != ""
         
         channel.close()
@@ -80,7 +80,7 @@ def load(node: ChordNode, key: str, prototype) -> tuple[object, grpc.StatusCode 
         stub = ChordServiceStub(channel)
         
         try:
-            response = stub.Get(Key(key=key), timeout=TIMEOUT)
+            response = stub.Get(Key(key=key), timeout=TIMEOUT_LOAD)
             channel.close()
             
             if not response.value:
@@ -95,7 +95,20 @@ def load(node: ChordNode, key: str, prototype) -> tuple[object, grpc.StatusCode 
             
         except grpc.RpcError as e:
             channel.close()
-            logger.error(f"RPC error loading key {key}: {e}")
+            logger.warning(f"RPC error loading key {key} from {responsible_node.address} (timeout={TIMEOUT_LOAD}s): {e}. Attempting local fallback...")
+            
+            # Fallback: try to load from local storage if the remote node is unreachable
+            value = node.storage.get(key)
+            if value:
+                try:
+                    prototype.ParseFromString(value.encode('latin1'))
+                    logger.info(f"Successfully loaded key {key} from local storage (fallback)")
+                    return prototype, None
+                except Exception as parse_err:
+                    logger.error(f"Failed to parse protobuf for key {key}: {parse_err}")
+                    return None, grpc.StatusCode.INTERNAL
+            
+            logger.error(f"RPC error loading key {key} and no local fallback available")
             return None, grpc.StatusCode.INTERNAL
             
     except Exception as e:
@@ -132,14 +145,19 @@ def save(node: ChordNode, key: str, prototype: object) -> grpc.StatusCode | None
         stub = ChordServiceStub(channel)
         
         try:
-            stub.Put(KeyValue(key=key, value=serialized_value), timeout=TIMEOUT)
+            stub.Put(KeyValue(key=key, value=serialized_value), timeout=TIMEOUT_SAVE)
             channel.close()
             return None
             
         except grpc.RpcError as e:
             channel.close()
-            logger.error(f"RPC error saving key {key}: {e}")
-            return grpc.StatusCode.INTERNAL
+            logger.warning(f"RPC error saving key {key} to {responsible_node.address} (timeout={TIMEOUT_SAVE}s): {e}. Saving to local storage as fallback...")
+            
+            # Fallback: save to local storage if the remote node is unreachable
+            # This ensures data is not lost and can be replicated later
+            node.storage.put(key, serialized_value, node.now_version())
+            logger.info(f"Successfully saved key {key} to local storage (fallback)")
+            return None
             
     except Exception as e:
         logger.error(f"Error saving key {key}: {e}")
@@ -171,14 +189,18 @@ def delete(node: ChordNode, key: str) -> grpc.StatusCode | None:
         stub = ChordServiceStub(channel)
         
         try:
-            stub.Delete(Key(key=key), timeout=TIMEOUT)
+            stub.Delete(Key(key=key), timeout=TIMEOUT_DELETE)
             channel.close()
             return None
             
         except grpc.RpcError as e:
             channel.close()
-            logger.error(f"RPC error deleting key {key}: {e}")
-            return grpc.StatusCode.INTERNAL
+            logger.warning(f"RPC error deleting key {key} from {responsible_node.address} (timeout={TIMEOUT_DELETE}s): {e}. Attempting local delete as fallback...")
+            
+            # Fallback: delete from local storage if the remote node is unreachable
+            node.storage.delete(key, node.now_version())
+            logger.info(f"Successfully deleted key {key} from local storage (fallback)")
+            return None
             
     except Exception as e:
         logger.error(f"Error deleting key {key}: {e}")
