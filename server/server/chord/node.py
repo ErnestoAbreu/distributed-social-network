@@ -9,6 +9,7 @@ from typing import Optional
 from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.threads.replicator import Replicator
 from server.server.chord.threads.discoverer import Discoverer
+from server.server.chord.threads.timer import Timer
 from server.server.chord.utils.utils import is_in_interval
 
 from .protos.chord_pb2 import ID, Key, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult, TimeStamp
@@ -85,6 +86,7 @@ class ChordNode(ChordServiceServicer):
 
         self.replicator: Optional[Replicator] = None
         self.discoverer: Optional[Discoverer] = None
+        self.timer: Optional[Timer] = None
 
 
     # ---------------- Chord RPCs ----------------
@@ -193,19 +195,19 @@ class ChordNode(ChordServiceServicer):
 
 
     def GetTime(self, request: Empty, context) -> TimeStamp:
-        """Get the current timestamp from the node."""
-        with self.lock:
-            timestamp: float = time.time()
-            if self.storage.exists(EVENT_TIME):
-                stored_time = self.storage.get(EVENT_TIME)
-                if stored_time:
-                    timestamp = float(stored_time)
-                    while time.time() < timestamp:
-                        time.sleep(0.001)
-            
+        """Get the synchronized timestamp from this node.
+        
+        Returns the local synchronized time maintained by the Timer thread
+        using the Berkeley algorithm. If Timer hasn't started yet, returns
+        system time as fallback.
+        """
+        # Use synchronized time from Timer thread
+        if self.timer and hasattr(self.timer, 'local_time'):
+            timestamp = self.timer.local_time
+        else:
+            # Fallback to system time if Timer not initialized
             timestamp = time.time()
-            self.storage.put(EVENT_TIME, str(timestamp), self.now_version())
-
+        
         return TimeStamp(timestamp=str(timestamp))
     
 
@@ -284,36 +286,17 @@ class ChordNode(ChordServiceServicer):
             return NodeInfo(id=self.id, address=self.address)
 
     def get_time(self) -> float:
-        """  Get the current time from the Chord network """
-
-        # Get current leader node
-        try:
-            n0 = self.find_successor(0)
-        except Exception as e:
-            logger.error(f"Failed to get leader node from Chord network: {e}")
-            return time.time()
-
-        if not n0.address:
-            logger.error("Failed to get time from Chord network")
-            return time.time()
-        
-        # Get time from leader node
-        try:
-            channel = grpc.insecure_channel(n0.address)
-            stub = ChordServiceStub(channel)
-            response = stub.GetTime(Empty(), timeout=TIMEOUT)
-            channel.close()
-        except Exception as e:
-            logger.error(f"Failed to get time from leader node: {e}")
-            return time.time()
-
-        return float(response.timestamp)
+        """Get the synchronized time from the Timer thread."""
+        if self.timer and hasattr(self.timer, 'local_time'):
+            return self.timer.local_time
+        return time.time()
 
     def get_datetime(self) -> str:
-        return datetime.fromtimestamp(self.get_time(), timezone.utc).isoformat()    
+        """Get the synchronized datetime as ISO format string."""
+        return datetime.fromtimestamp(self.get_time(), timezone.utc).isoformat()
     
     def now_version(self) -> int:
-        """ Get current version based on Chord network time """
+        """Get current version based on synchronized time."""
         return int(self.get_time() * 1000)
 
     def serve(self) -> None:
@@ -332,6 +315,9 @@ class ChordNode(ChordServiceServicer):
 
         self.discoverer = Discoverer(self, DISCOVERY_INTERVAL)
         self.discoverer.start()
+
+        self.timer = Timer(self, TIMER_INTERVAL)
+        self.timer.start()
 
         server.start()
         logger.info('Chord gRPC server started')

@@ -15,5 +15,6 @@ TIMEOUT_REPLICATE = 12   # Replication messages
 STABILIZE_INTERVAL = 6
 REPLICATION_INTERVAL = 6
 DISCOVERY_INTERVAL = 10
+TIMER_INTERVAL = 5
 
-EVENT_TIME = "__event_time__"
+EVENT_TIME = "__timer_local_time__"
