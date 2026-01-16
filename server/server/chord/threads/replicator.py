@@ -29,10 +29,12 @@ class Replicator(threading.Thread):
 
     def _remote_get_str(self, node, key: str) -> str:
         channel = grpc.insecure_channel(node.address)
-        stub = ChordServiceStub(channel)
-        resp = stub.Get(Key(key=key), timeout=TIMEOUT)
-        channel.close()
-        return resp.value if resp and resp.value is not None else ""
+        try:
+            stub = ChordServiceStub(channel)
+            resp = stub.Get(Key(key=key), timeout=TIMEOUT)
+            return resp.value if resp and resp.value is not None else ""
+        finally:
+            channel.close()
 
     def _remote_get_int(self, node, key: str) -> int:
         raw = self._remote_get_str(node, key)
@@ -43,36 +45,44 @@ class Replicator(threading.Thread):
 
     def _replicate_put(self, node, key: str, value: str):
         channel = grpc.insecure_channel(node.address)
-        stub = ChordServiceStub(channel)
-        stub.Put(KeyValue(key=key, value=value), timeout=TIMEOUT)
-        channel.close()
+        try:
+            stub = ChordServiceStub(channel)
+            stub.Put(KeyValue(key=key, value=value), timeout=TIMEOUT)
+        finally:
+            channel.close()
 
     def _replicate_delete(self, node, key: str):
         channel = grpc.insecure_channel(node.address)
-        stub = ChordServiceStub(channel)
-        stub.Delete(Key(key=key), timeout=TIMEOUT)
-        channel.close()
+        try:
+            stub = ChordServiceStub(channel)
+            stub.Delete(Key(key=key), timeout=TIMEOUT)
+        finally:
+            channel.close()
 
     # ---------------- Partition RPC helpers ----------------
 
     def _remote_set_partition(self, node, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> bool:
         channel = grpc.insecure_channel(node.address)
-        stub = ChordServiceStub(channel)
-        resp = stub.SetPartition(Partition(values=values, versions=versions, removed=removed), timeout=TIMEOUT)
-        channel.close()
-        return bool(getattr(resp, 'ok', False))
+        try:
+            stub = ChordServiceStub(channel)
+            resp = stub.SetPartition(Partition(values=values, versions=versions, removed=removed), timeout=TIMEOUT)
+            return bool(getattr(resp, 'ok', False))
+        finally:
+            channel.close()
 
     def _remote_resolve_data(self, node, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> Tuple[bool, Dict[str, str], Dict[str, int], Dict[str, int]]:
         channel = grpc.insecure_channel(node.address)
-        stub = ChordServiceStub(channel)
-        resp = stub.ResolveData(Partition(values=values, versions=versions, removed=removed), timeout=TIMEOUT)
-        channel.close()
+        try:
+            stub = ChordServiceStub(channel)
+            resp = stub.ResolveData(Partition(values=values, versions=versions, removed=removed), timeout=TIMEOUT)
 
-        if not resp or not getattr(resp, 'ok', False) or not getattr(resp, 'partition', None):
-            return False, {}, {}, {}
+            if not resp or not getattr(resp, 'ok', False) or not getattr(resp, 'partition', None):
+                return False, {}, {}, {}
 
-        part = resp.partition
-        return True, dict(part.values), dict(part.versions), dict(part.removed)
+            part = resp.partition
+            return True, dict(part.values), dict(part.versions), dict(part.removed)
+        finally:
+            channel.close()
 
     def get_successor_list(self, count=REPLICATION_K):
         """Get a list of the next 'count' successor nodes for replication"""
@@ -94,9 +104,11 @@ class Replicator(threading.Thread):
                     break
 
                 channel = grpc.insecure_channel(current.address)
-                stub = ChordServiceStub(channel)
-                next_node = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
-                channel.close()
+                try:
+                    stub = ChordServiceStub(channel)
+                    next_node = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                finally:
+                    channel.close()
 
                 if next_node and next_node.address != self.node.address:
                     # Avoid duplicates
@@ -118,10 +130,12 @@ class Replicator(threading.Thread):
             return False
         try:
             channel = grpc.insecure_channel(node.address)
-            stub = ChordServiceStub(channel)
-            stub.Ping(Empty(), timeout=TIMEOUT)
-            channel.close()
-            return True
+            try:
+                stub = ChordServiceStub(channel)
+                stub.Ping(Empty(), timeout=TIMEOUT)
+                return True
+            finally:
+                channel.close()
         except Exception as e:
             self.logger.debug(f"Node {node.address} unreachable: {e}")
             return False
@@ -243,15 +257,26 @@ class Replicator(threading.Thread):
         for key, target_node in keys_to_transfer:
             try:
                 value = self.node.storage.get(key)
-                if value is not None:
-                    self._replicate_put(target_node, key, value)
-                    local_ver = self._local_version(key)
-                    if local_ver > 0:
-                        self._replicate_put(target_node, meta_ver_key(key), str(local_ver))
-                    self.node.storage.purge(key)
-                    self.logger.info(f"Transferred key {key} to {target_node.address}")
+                if value is None:
+                    continue
+                    
+                # Transfer value and metadata
+                self._replicate_put(target_node, key, value)
+                local_ver = self._local_version(key)
+                if local_ver > 0:
+                    self._replicate_put(target_node, meta_ver_key(key), str(local_ver))
+                    
+                # Also transfer tombstone if exists
+                local_del = self._local_deleted_version(key)
+                if local_del > 0:
+                    self._replicate_put(target_node, meta_del_key(key), str(local_del))
+                    
+                # Only purge after successful transfer
+                self.node.storage.purge(key)
+                self.logger.info(f"Transferred key {key} to {target_node.address}")
             except Exception as e:
                 self.logger.error(f"Failed to transfer key {key} to {target_node.address}: {e}")
+                # Don't purge on failure - keep the key
     
     def _should_keep_replica(self, key_hash):
         """Determine if this node should keep the replica for the given key hash"""
@@ -263,80 +288,82 @@ class Replicator(threading.Thread):
             if responsible_node.address == self.node.address:
                 return True
             
-            # Get our successors
-            our_successors = self.get_successor_list(REPLICATION_K)
-
-            predecessor = self.node.predecessor
-            if not predecessor:
-                return False
-            
-            # Check if responsible_node is in our "predecessor chain" within REPLICATION_K hops
-            current_check = self.node.predecessor
-            for distance in range(1, REPLICATION_K):
-                if not current_check:
-                    break
-                if current_check.id == responsible_node.id:
-                    return True
-                # Move back one more step
+            # Check if we're within the first K successors of the responsible node
+            # (i.e., we're one of the replica holders)
+            try:
+                channel = grpc.insecure_channel(responsible_node.address)
                 try:
-                    channel = grpc.insecure_channel(current_check.address)
                     stub = ChordServiceStub(channel)
-                    prev_pred = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
+                    
+                    # Get successors of the responsible node
+                    current = responsible_node
+                    for _ in range(REPLICATION_K - 1):
+                        next_resp = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                        if next_resp and next_resp.address == self.node.address:
+                            # We're one of the K replicas
+                            return True
+                        if not next_resp or next_resp.address == responsible_node.address:
+                            break
+                        current = next_resp
+                finally:
                     channel.close()
-                    current_check = prev_pred if prev_pred else None
-                except Exception as e:
-                    break
+            except Exception as e:
+                self.logger.debug(f"Could not determine replica status for key hash {key_hash}: {e}")
             
             return False
         except Exception as e:
             self.logger.warning(f"Error checking if should keep replica for key hash {key_hash}: {e}")
             return False
 
-    def fetch_replicas_from_successor(self):
-        """Fetch replicas from immediate successor and merge (LWW)"""
-        with self.node.lock:
-            successor = self.node.finger[0]
+    def fetch_replicas_from_successors(self):
+        """Fetch replicas from K successors and merge (LWW)"""
+        successors = self.get_successor_list(REPLICATION_K - 1)
 
-        if not successor or successor.address == self.node.address:
-            self.logger.debug("No valid successor to fetch replicas from")
+        if not successors:
+            self.logger.debug("No valid successors to fetch replicas from")
             return
         
-        try:
-            channel = grpc.insecure_channel(successor.address)
-            stub = ChordServiceStub(channel)
-            response = stub.GetAllKeys(Empty(), timeout=TIMEOUT)
-            channel.close()
+        self.logger.info(f"Fetching replicas from {len(successors)} successors")
+        
+        for successor in successors:
+            try:
+                channel = grpc.insecure_channel(successor.address)
+                try:
+                    stub = ChordServiceStub(channel)
+                    response = stub.GetAllKeys(Empty(), timeout=TIMEOUT)
+                finally:
+                    channel.close()
 
-            if response and response.items:
-                payload = {kv.key: kv.value for kv in response.items}
+                if response and response.items:
+                    payload = {kv.key: kv.value for kv in response.items}
 
-                incoming_values: Dict[str, str] = {}
-                incoming_versions: Dict[str, int] = {}
-                incoming_removed: Dict[str, int] = {}
+                    incoming_values: Dict[str, str] = {}
+                    incoming_versions: Dict[str, int] = {}
+                    incoming_removed: Dict[str, int] = {}
 
-                for k, v in payload.items():
-                    if k.startswith("__meta_ver__"):
-                        bk = base_key_from_meta(k)
-                        try:
-                            incoming_versions[bk] = int(v) if v else 0
-                        except Exception:
-                            incoming_versions[bk] = 0
-                    elif k.startswith("__meta_del__"):
-                        bk = base_key_from_meta(k)
-                        try:
-                            incoming_removed[bk] = int(v) if v else 0
-                        except Exception:
-                            incoming_removed[bk] = 0
-                    else:
-                        incoming_values[k] = v
+                    for k, v in payload.items():
+                        if k.startswith("__meta_ver__"):
+                            bk = base_key_from_meta(k)
+                            try:
+                                incoming_versions[bk] = int(v) if v else 0
+                            except Exception:
+                                incoming_versions[bk] = 0
+                        elif k.startswith("__meta_del__"):
+                            bk = base_key_from_meta(k)
+                            try:
+                                incoming_removed[bk] = int(v) if v else 0
+                            except Exception:
+                                incoming_removed[bk] = 0
+                        else:
+                            incoming_values[k] = v
 
-                # Apply partition locally (LWW)
-                ok = self.set_partition(incoming_values, incoming_versions, incoming_removed)
-                if ok:
-                    self.logger.info(f"Successfully fetched+merged replicas from {successor.address}")
+                    # Apply partition locally (LWW)
+                    ok = self.set_partition(incoming_values, incoming_versions, incoming_removed)
+                    if ok:
+                        self.logger.info(f"Successfully fetched+merged replicas from {successor.address}")
 
-        except Exception as e:
-            self.logger.error(f"Failed to fetch replicas from {successor.address}: {e}")
+            except Exception as e:
+                self.logger.error(f"Failed to fetch replicas from {successor.address}: {e}")
 
     # ---------------- Partition / resolve (server-side logic) ----------------
 
@@ -446,19 +473,101 @@ class Replicator(threading.Thread):
         # Apply returned partition locally (these are the items we should keep)
         self.set_partition(res_values, res_versions, res_removed)
 
+    def initial_sync(self):
+        """Aggressively fetch all relevant data when joining the network"""
+        self.logger.info("Starting initial replication sync...")
+        
+        # Fetch from all available successors
+        self.fetch_replicas_from_successors()
+        
+        # Also fetch from predecessor if available (we might need to replicate their data)
+        with self.node.lock:
+            predecessor = self.node.predecessor
+        
+        if predecessor and predecessor.address != self.node.address:
+            try:
+                channel = grpc.insecure_channel(predecessor.address)
+                try:
+                    stub = ChordServiceStub(channel)
+                    response = stub.GetAllKeys(Empty(), timeout=TIMEOUT)
+                finally:
+                    channel.close()
+                
+                if response and response.items:
+                    payload = {kv.key: kv.value for kv in response.items}
+                    
+                    incoming_values: Dict[str, str] = {}
+                    incoming_versions: Dict[str, int] = {}
+                    incoming_removed: Dict[str, int] = {}
+                    
+                    for k, v in payload.items():
+                        if k.startswith("__meta_ver__"):
+                            bk = base_key_from_meta(k)
+                            try:
+                                incoming_versions[bk] = int(v) if v else 0
+                            except Exception:
+                                incoming_versions[bk] = 0
+                        elif k.startswith("__meta_del__"):
+                            bk = base_key_from_meta(k)
+                            try:
+                                incoming_removed[bk] = int(v) if v else 0
+                            except Exception:
+                                incoming_removed[bk] = 0
+                        else:
+                            incoming_values[k] = v
+                    
+                    # Filter: only keep keys we're responsible for
+                    filtered_values = {}
+                    filtered_versions = {}
+                    filtered_removed = {}
+                    
+                    for key in incoming_values.keys():
+                        key_hash = hash_key(key, self.node.id.bit_length())
+                        responsible = self.node.find_successor(key_hash)
+                        if responsible.address == self.node.address:
+                            filtered_values[key] = incoming_values[key]
+                            if key in incoming_versions:
+                                filtered_versions[key] = incoming_versions[key]
+                    
+                    for key in incoming_removed.keys():
+                        key_hash = hash_key(key, self.node.id.bit_length())
+                        responsible = self.node.find_successor(key_hash)
+                        if responsible.address == self.node.address:
+                            filtered_removed[key] = incoming_removed[key]
+                    
+                    if filtered_values or filtered_removed:
+                        self.set_partition(filtered_values, filtered_versions, filtered_removed)
+                        self.logger.info(f"Acquired {len(filtered_values)} keys from predecessor")
+                        
+            except Exception as e:
+                self.logger.error(f"Failed to fetch from predecessor: {e}")
+        
+        self.logger.info("Initial sync completed")
+
     def run(self):
         """Main loop for periodic replication and resolution"""
         self.logger.info("Replicator thread started")
 
-        # Intitial delay to let the node stabilize
+        # Initial delay to let the node stabilize
         time.sleep(self.interval)
+        
+        # Perform aggressive initial sync
+        try:
+            self.initial_sync()
+        except Exception as e:
+            self.logger.error(f"Error during initial sync: {e}")
+
+        cycle_count = 0
+        resolve_every = 5  # Resolve replicas every 5 cycles
 
         while True:
             try:
                 self.replicate_data()
 
-                if int(time.time()) % (self.interval * 5) == 0:
+                cycle_count += 1
+                if cycle_count >= resolve_every:
                     self.resolve_replicas()
+                    cycle_count = 0
             
             except Exception as e:
                 self.logger.error(f"Error during replication cycle: {e}")

@@ -316,8 +316,6 @@ class ChordNode(ChordServiceServicer):
 
         self.replicator = Replicator(self, REPLICATION_INTERVAL)
         self.replicator.start()
-        # Fetch replicas from successor after joining        
-        self.replicator.fetch_replicas_from_successor()
 
         server.start()
         logger.info('Chord gRPC server started')
