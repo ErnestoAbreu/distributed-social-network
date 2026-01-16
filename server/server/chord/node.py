@@ -7,6 +7,7 @@ from concurrent import futures
 
 from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.threads.replicator import Replicator
+from server.server.chord.threads.discoverer import Discoverer
 from server.server.chord.utils.utils import is_in_interval
 
 from .protos.chord_pb2 import ID, Key, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult, TimeStamp
@@ -36,6 +37,7 @@ class ChordNode(ChordServiceServicer):
         finger (list[NodeInfo]): Finger table with M_BITS entries for routing
         next_finger (int): Index tracking the next finger to be updated during stabilization
         replicator (Replicator): Component managing data replication across nodes
+        discoverer (Discoverer): Component managing ring discovery and joining
     Methods (RPC Endpoints):
         FindSuccessor(request, context) -> NodeInfo:
             Locates the successor node responsible for a given key ID.
@@ -81,6 +83,7 @@ class ChordNode(ChordServiceServicer):
         self.next_finger = 0
 
         self.replicator = None
+        self.discoverer = None
 
 
     # ---------------- Chord RPCs ----------------
@@ -316,6 +319,9 @@ class ChordNode(ChordServiceServicer):
 
         self.replicator = Replicator(self, REPLICATION_INTERVAL)
         self.replicator.start()
+
+        self.discoverer = Discoverer(self, DISCOVERY_INTERVAL)
+        self.discoverer.start()
 
         server.start()
         logger.info('Chord gRPC server started')

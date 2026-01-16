@@ -1,18 +1,19 @@
 M_BITS = 8
 REPLICATION_K = 3
 
-TIMEOUT = 2
+TIMEOUT = 6
 
-TIMEOUT_LOAD = 4        # Load operations
-TIMEOUT_SAVE = 5        # Save operations
-TIMEOUT_EXISTS = 3      # Check existence
-TIMEOUT_DELETE = 3      # Delete operations
-TIMEOUT_FIND_SUCCESSOR = 3  # Find successor in chord ring
-TIMEOUT_FIND_CLOSEST = 2    # Find closest preceding node
-TIMEOUT_STABILIZE = 3   # Stabilization messages
-TIMEOUT_REPLICATE = 4   # Replication messages
+TIMEOUT_LOAD = 12        # Load operations
+TIMEOUT_SAVE = 15        # Save operations
+TIMEOUT_EXISTS = 9      # Check existence
+TIMEOUT_DELETE = 9      # Delete operations
+TIMEOUT_FIND_SUCCESSOR = 9  # Find successor in chord ring
+TIMEOUT_FIND_CLOSEST = 6    # Find closest preceding node
+TIMEOUT_STABILIZE = 9   # Stabilization messages
+TIMEOUT_REPLICATE = 12   # Replication messages
 
-STABILIZE_INTERVAL = 2
-REPLICATION_INTERVAL = 2
+STABILIZE_INTERVAL = 6
+REPLICATION_INTERVAL = 6
+DISCOVERY_INTERVAL = 10
 
 EVENT_TIME = "__event_time__"

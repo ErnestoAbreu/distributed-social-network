@@ -7,7 +7,6 @@ import socket
 import os
 import grpc
 
-from server.discover import discover_nodes, join_ring
 from server.server.auth import start_auth_service, AuthRepository
 from server.server.relations import start_relations_service, RelationsRepository
 from server.server.posts import start_post_service, PostRepository
@@ -46,19 +45,7 @@ def run_services():
 
     logger.info('gRPC services listening in ports 50000, 50001, 50002')
     
-    logger.info('Discovering existing Chord nodes...')
-    
-    existing_nodes = discover_nodes(node.address)
-    
-    if existing_nodes:
-        if join_ring(node, existing_nodes):
-            logger.info('Joined existing Chord ring')
-        else:
-            logger.error('Failed to join existing Chord ring')
-            sys.exit(1)
-    else:
-        logger.info('No existing nodes discovered, creating new ring')
-        node.join(None)
+    logger.info('Starting Chord node with automatic discovery and ring joining...')
     
     node.serve()
 
