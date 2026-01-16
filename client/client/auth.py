@@ -7,10 +7,12 @@ from protos import models_pb2
 
 from client.client.discoverer import get_host
 from client.client.constants import *
+from client.client.utils import retry_on_failure
 
 logger = logging.getLogger('socialnet.client.auth')
 # logger.setLevel(logging.INFO)
 
+@retry_on_failure()
 def register(username, email, name, password):
     host = get_host(AUTH)
     channel = grpc.insecure_channel(host)
@@ -18,22 +20,17 @@ def register(username, email, name, password):
     user = models_pb2.User(user_id=username, email=email, name=name, password_hash=password)
     request = RegisterRequest(user=user)
 
-    try:
-        response = stub.Register(request)
-        return response
-    except grpc.RpcError as e:
-        logger.error(f'An error occurred creating the user: {e.code()}: {e.details()}')
-        return False
-    
+    response = stub.Register(request)
+    return response
+
+
+@retry_on_failure()
 def login(username, password):
     host = get_host(AUTH)
     channel = grpc.insecure_channel(host)
     stub = AuthServiceStub(channel)
     request = LoginRequest(username=username, password=password)
-
-    try:
-        response = stub.Login(request)
-        return response.token
-    except grpc.RpcError as e:
-        logger.error(f'An error occurred logging in {e.code()}: {e.details()}')
-        return None
+    
+    response = stub.Login(request)
+    return response.token
+    

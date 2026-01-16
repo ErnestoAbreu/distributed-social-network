@@ -5,6 +5,7 @@ import base64
 from client.client.constants import POST
 from client.client.discoverer import get_host, get_authenticated_channel
 from client.client.file_cache import FileCache
+from client.client.utils import retry_on_failure
 
 from protos.posts_pb2 import PostRequest, GetPostsRequest, GetPostRequest, RepostRequest, GetPostsIdRequest, GetPostsResponse, GetPostsIdResponse, GetPostResponse
 from protos.posts_pb2_grpc import PostServiceStub
@@ -124,28 +125,22 @@ async def get_post(post_id, token, request=False):
         logger.info(f'Post {post_id} not found in cache')
         return None
     
+@retry_on_failure()
 def publish(username, content, token):
     host = get_host(POST)
     channel = get_authenticated_channel(host, token)
     stub = PostServiceStub(channel)
     request = PostRequest(user_id=username, content=content)
-
-    try:
-        response = stub.Publish(request)
-        return response
-    except grpc.RpcError as e:
-        logger.error(f'An error ocurred creating the post: {e.code()}: {e.details()}')
-        return False
     
+    response = stub.Publish(request)
+    return response
+    
+@retry_on_failure()
 def repost(username, original_post_id, token):
     host = get_host(POST)
     channel = get_authenticated_channel(host, token)
     stub = PostServiceStub(channel)
     request = RepostRequest(user_id=username, original_post_id=original_post_id)
-
-    try:
-        response = stub.Repost(request)
-        return response
-    except grpc.RpcError as e:
-        logger.error(f'An error occurred reposting {e.code()}: {e.details()}')
-        return False
+    
+    response = stub.Repost(request)
+    return response
