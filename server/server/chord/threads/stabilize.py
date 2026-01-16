@@ -43,10 +43,12 @@ class Stabilizer(threading.Thread):
             return False
         try:
             channel = grpc.insecure_channel(node.address)
-            stub = ChordServiceStub(channel)
-            stub.Ping(Empty(), timeout=TIMEOUT)
-            channel.close()
-            return True
+            try:
+                stub = ChordServiceStub(channel)
+                stub.Ping(Empty(), timeout=TIMEOUT)
+                return True
+            finally:
+                channel.close()
         except Exception as e:
             self.logger.warning(f"Node {node.address} unreachable: {e}")
             return False
@@ -59,9 +61,9 @@ class Stabilizer(threading.Thread):
         for finger in fingers_copy:
             if finger and finger.address != self.node.address:
                 if self._ping_node(finger):
-                    return 
+                    return finger
                 
-        logging.warning(f"Node is isolated {self.node.address}, no alive successors found")
+        self.logger.warning(f"Node is isolated {self.node.address}, no alive successors found")
                 
         # If not alive successor, return self node itself
         return NodeInfo(id=self.node.id, address=self.node.address)
@@ -77,15 +79,22 @@ class Stabilizer(threading.Thread):
          # Try getting successor's predecessor
         try:
             channel = grpc.insecure_channel(successor.address)
-            stub = ChordServiceStub(channel)
-            middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
-            channel.close()
+            try:
+                stub = ChordServiceStub(channel)
+                middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
+            finally:
+                channel.close()
         except Exception as e:
             self.logger.warning(f"Failed to get predecessor from {successor.address}: {e}")
             return False
 
+        # Validate middle_node before using it
+        if not middle_node or not middle_node.address:
+            self.logger.debug(f"Invalid predecessor response from {successor.address}")
+            return False
+
         # Check if middle_node is our new successor
-        if middle_node.address and is_in_interval(middle_node.id, self.node.id, successor.id):
+        if is_in_interval(middle_node.id, self.node.id, successor.id):
             # Check if the reported predecessor is alive
             if self._ping_node(middle_node):
                 with self.node.lock:
@@ -106,22 +115,26 @@ class Stabilizer(threading.Thread):
         
         try:
             channel = grpc.insecure_channel(successor.address)
-            stub = ChordServiceStub(channel)
-            stub.UpdatePredecessor(NodeInfo(id=self.node.id, address=self.node.address), timeout=TIMEOUT)
-            channel.close()
+            try:
+                stub = ChordServiceStub(channel)
+                stub.UpdatePredecessor(NodeInfo(id=self.node.id, address=self.node.address), timeout=TIMEOUT)
+            finally:
+                channel.close()
         except Exception as e:
             self.logger.warning(f"Failed to notify successor {successor.address}: {e}")
 
     def _fix_finger_table(self):
+        """Update finger table with error handling"""
         try:
             for i in range(M_BITS):
                 start = (self.node.id + (1 << i)) % (1 << M_BITS)
                 try:
                     succ_i = self.node.find_successor(start)
-                    with self.node.lock:
-                        self.node.finger[i] = succ_i
+                    if succ_i:
+                        with self.node.lock:
+                            self.node.finger[i] = succ_i
                 except Exception as ie:
-                    self.logger.warning(f"failed to update finger {i}: {ie}")
+                    self.logger.debug(f"failed to update finger {i}: {ie}")
         except Exception as e:
             self.logger.warning(f"updating finger table failed: {e}")
 
@@ -169,7 +182,3 @@ class Stabilizer(threading.Thread):
                 
             except Exception as e:
                 self.logger.error(f"Stabilization loop error: {e}")
-
-
-            
-                
