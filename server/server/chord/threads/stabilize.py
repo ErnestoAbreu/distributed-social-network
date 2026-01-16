@@ -50,7 +50,8 @@ class Stabilizer(threading.Thread):
             finally:
                 channel.close()
         except Exception as e:
-            self.logger.warning(f"Node {node.address} unreachable: {e}")
+            # Node unreachable is expected behavior, use debug level
+            self.logger.debug(f"Node {node.address} unreachable: {e}")
             return False
 
     def _find_next_alive_successor(self):
@@ -65,7 +66,7 @@ class Stabilizer(threading.Thread):
                 # else:
                 #     finger = None  # Mark as dead
                 
-        self.logger.warning(f"Node is isolated {self.node.address}, no alive successors found")
+        self.logger.debug(f"Node is isolated {self.node.address}, no alive successors found")
                 
         # If not alive successor, return self node itself
         return NodeInfo(id=self.node.id, address=self.node.address)
@@ -87,7 +88,7 @@ class Stabilizer(threading.Thread):
             finally:
                 channel.close()
         except Exception as e:
-            self.logger.warning(f"Failed to get predecessor from {successor.address}: {e}")
+            self.logger.debug(f"Failed to get predecessor from {successor.address}: {e}")
             return False
 
         # Validate middle_node before using it
@@ -104,7 +105,7 @@ class Stabilizer(threading.Thread):
                     successor = middle_node
                     return True
             else:
-                self.logger.warning(f"Reported predecessor {middle_node.address} is dead, ignoring")
+                self.logger.debug(f"Reported predecessor {middle_node.address} is dead, ignoring")
             
         return False
     
@@ -123,7 +124,7 @@ class Stabilizer(threading.Thread):
             finally:
                 channel.close()
         except Exception as e:
-            self.logger.warning(f"Failed to notify successor {successor.address}: {e}")
+            self.logger.debug(f"Failed to notify successor {successor.address}: {e}")
 
     def _fix_finger_table(self):
         """Update finger table with error handling"""
@@ -155,7 +156,7 @@ class Stabilizer(threading.Thread):
                 # Check if successor is alive before trying to contact it
                 network_changed = False
                 if not self._ping_node(successor):
-                    self.logger.warning(f"Successor {successor.address} is dead, finding new successor")
+                    self.logger.info(f"Successor {successor.address} is dead, finding new successor")
                     new_successor = self._find_next_alive_successor()
                     with self.node.lock:
                         self.node.finger[0] = new_successor
