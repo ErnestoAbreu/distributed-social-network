@@ -10,6 +10,7 @@ from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.threads.replicator import Replicator
 from server.server.chord.threads.discoverer import Discoverer
 from server.server.chord.threads.timer import Timer
+from server.server.chord.threads.elector import Elector
 from server.server.chord.utils.utils import is_in_interval
 
 from .protos.chord_pb2 import ID, Key, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult, TimeStamp
@@ -87,6 +88,7 @@ class ChordNode(ChordServiceServicer):
         self.replicator: Optional[Replicator] = None
         self.discoverer: Optional[Discoverer] = None
         self.timer: Optional[Timer] = None
+        self.elector: Optional[Elector] = None
 
 
     # ---------------- Chord RPCs ----------------
@@ -318,6 +320,9 @@ class ChordNode(ChordServiceServicer):
 
         self.timer = Timer(self, TIMER_INTERVAL)
         self.timer.start()
+
+        self.elector = Elector(self, ELECTOR_INTERVAL)
+        self.elector.start()
 
         server.start()
         logger.info('Chord gRPC server started')

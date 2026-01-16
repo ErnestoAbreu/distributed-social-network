@@ -41,6 +41,12 @@ class Discoverer(threading.Thread):
                 successor = self.node.finger[0] if self.node.finger[0] else None
                 predecessor = self.node.predecessor
             
+            leader_info = ""
+            if self.node.elector and self.node.elector.current_leader:
+                leader = self.node.elector.current_leader
+                is_leader = self.node.elector.is_leader
+                leader_info = f" | Leader: {leader.id}@{leader.address}" + (" (THIS NODE)" if is_leader else "")
+            
             self.logger.info("=== Network Status ===")
             self.logger.info(f"Current Node: {self.node.id}@{self.node.address}")
             
@@ -55,7 +61,7 @@ class Discoverer(threading.Thread):
                 self.logger.info("Predecessor: None")
             
             is_isolated = (successor and successor.address == self.node.address) or not successor
-            self.logger.info(f"Status: {'Isolated (Leader)' if is_isolated else 'Connected to ring'}")
+            self.logger.info(f"Status: {'Isolated (Leader)' if is_isolated else 'Connected to ring'}{leader_info}")
             
         except Exception as e:
             self.logger.error(f"Error logging network status: {e}")
@@ -88,7 +94,8 @@ class Discoverer(threading.Thread):
 
     def join(self, candidate_nodes: list[str]) -> bool:
         """
-        Joins the chord ring by connecting to a specified node and leader.
+        Joins the chord ring by connecting to a specified node.
+        Allows time for topology to stabilize before triggering election.
         
         Args:
             candidate_nodes (list[str]): List of node addresses to attempt joining through.
@@ -109,6 +116,19 @@ class Discoverer(threading.Thread):
                 # Join through this node
                 self.node.join(NodeInfo(address=candidate_addr))
                 self.logger.info(f'Successfully joined Chord ring via {candidate_addr}')
+                
+                # Wait for topology to stabilize before election
+                # This gives the Stabilizer thread time to update finger tables
+                self.logger.info('Waiting for ring topology to stabilize before election...')
+                time.sleep(3)
+                
+                # Trigger election after topology stabilization
+                if self.node.elector:
+                    self.logger.info('Topology stabilized, triggering leader election')
+                    self.node.elector.call_for_election()
+                else:
+                    self.logger.warning('Elector not initialized yet')
+                
                 self.log_network_status()
                 return True
                 
@@ -133,7 +153,15 @@ class Discoverer(threading.Thread):
                 self.node.finger[0] = self_node
                 self.node.predecessor = None
             
-            self.logger.info(f"New Chord ring created. Node {self.node.id}@{self.node.address} is the leader.")
+            # Initialize elector with this node as leader (only node in ring)
+            if self.node.elector:
+                self.node.elector.current_leader = self_node
+                self.node.elector.is_leader = True
+                self.logger.info(f"Elector initialized: Node {self.node.id} is the leader")
+            else:
+                self.logger.warning("Elector not available yet")
+            
+            self.logger.info(f"New Chord ring created. Node {self.node.id}@{self.node.address} is the only node.")
             self.log_network_status()
             
         except Exception as e:
@@ -169,13 +197,45 @@ class Discoverer(threading.Thread):
             self.logger.error(f"Error in create_ring_or_join: {e}")
             return False
 
+    def _update_leader_status(self):
+        """
+        Updates the leader status in the elector based on current ring topology.
+        Called when ring topology changes to ensure consistency.
+        """
+        try:
+            if not self.node.elector:
+                self.logger.debug("Elector not initialized, skipping leader status update")
+                return
+            
+            with self.node.lock:
+                successor = self.node.finger[0] if self.node.finger[0] else None
+            
+            # If node is isolated, it should become leader
+            is_isolated = (successor and successor.address == self.node.address) or not successor
+            if is_isolated:
+                self_node = NodeInfo(id=self.node.id, address=self.node.address)
+                self.node.elector.current_leader = self_node
+                self.node.elector.is_leader = True
+                self.logger.info(f"Topology update: Node {self.node.id} is isolated, promoting to leader")
+            else:
+                # Clear leader state when joining a ring, let elector compute consensus
+                self.node.elector.current_leader = None
+                self.node.elector.is_leader = False
+                self.logger.info(f"Topology update: Topology changed, clearing leader state for re-election")
+            
+        except Exception as e:
+            self.logger.error(f"Error updating leader status: {e}")
+
     def run(self):
         """
         Main run method for the discovery thread.
-        Periodically checks if the node is the leader or isolated, and attempts to discover
-        or join a chord ring.
+        Periodically checks if the node is isolated and attempts to discover or join a ring.
+        Monitors topology changes but lets elector handle election timing.
         """
         self.logger.info(f"Starting discovery thread with {self.interval}s interval...")
+        
+        prev_successor = None
+        consecutive_unchanged = 0
         
         while True:
             try:
@@ -186,12 +246,25 @@ class Discoverer(threading.Thread):
                 # Check if node is isolated (no ring joined)
                 is_isolated = (successor and successor.address == self.node.address) or not successor
                 
+                # Detect topology changes
+                if prev_successor != successor:
+                    successor_info = f"{successor.id}@{successor.address}" if successor else "None"
+                    prev_successor_info = f"{prev_successor.id}@{prev_successor.address}" if prev_successor else "None"
+                    self.logger.info(f"Ring topology changed. Previous successor: {prev_successor_info}, New successor: {successor_info}")
+                    self._update_leader_status()
+                    consecutive_unchanged = 0
+                    prev_successor = successor
+                else:
+                    consecutive_unchanged += 1
+                
                 if is_isolated:
                     self.logger.info("Node is isolated. Attempting to discover and join ring...")
                     self.create_ring_or_join()
                 else:
-                    self.logger.debug(f"Node is connected. Successor: {successor.address}")
-                    self.log_network_status()
+                    # Node is connected, just log status periodically to avoid spam
+                    if consecutive_unchanged % 5 == 0:  # Log every 5 checks (50 seconds)
+                        self.logger.debug(f"Node is connected. Successor: {successor.id}@{successor.address}")
+                        self.log_network_status()
                 
                 # Wait before next check
                 time.sleep(self.interval)
