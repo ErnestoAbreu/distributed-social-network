@@ -133,7 +133,7 @@ def navbar():
         
         if st.session_state.logged_user is None:
             _popup_info("👋 **Welcome!**\n\nPlease login or register to get started.")
-            option = st.radio('', ['Login/Register'], label_visibility="collapsed")
+            option = st.radio('Authentication', ['Login/Register'], label_visibility="collapsed")
         else:
             st.success(f"**Logged in as:**\n### @{st.session_state.logged_user}")
             st.markdown("---")
@@ -650,9 +650,9 @@ def post_view():
 
     # Formulario para crear post
     with st.expander("✍️ **Create a new post**", expanded=True):
+        max_length = min(MAX_POST_LENGHT, (followers + 1) * 300)
+        
         with st.form('post_form', clear_on_submit=True):
-            max_length = min(MAX_POST_LENGHT, (followers + 1) * 300)
-            
             content = st.text_area(
                 'Your post',
                 max_chars=max_length,
@@ -663,7 +663,7 @@ def post_view():
             
             col_info, col_btn = st.columns([3, 1])
             with col_info:
-                st.caption(f"📝 {len(content) if content else 0}/{max_length} characters")
+                pass
             with col_btn:
                 submitted = st.form_submit_button(
                     '🚀 Publish', 
