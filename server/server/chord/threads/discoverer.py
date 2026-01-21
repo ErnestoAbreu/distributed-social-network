@@ -5,6 +5,7 @@ import time
 import grpc
 import threading
 
+from server.server.chord.utils.utils import is_in_interval
 from server.server.chord.utils.config import TIMEOUT, DISCOVERY_INTERVAL
 from server.server.chord.utils.cache import load_node_cache, save_node_cache, add_to_node_cache
 from server.server.config import DEFAULT_PORT
@@ -36,36 +37,105 @@ class Discoverer(threading.Thread):
     def log_network_status(self):
         """
         Logs the current network status, including active servers, leader, and their connections.
+        Shows live updates for successor and predecessor.
         """
         try:
+            self._refresh_topology_info()
+            
             with self.node.lock:
                 successor = self.node.finger[0] if self.node.finger[0] else None
                 predecessor = self.node.predecessor
+            
+            if successor:
+                successor_info = f"{successor.id}@{successor.address}"
+                is_self_successor = successor.address == self.node.address
+                successor_str = f"Successor: {successor_info}" + (" (SELF)" if is_self_successor else "")
+            else:
+                successor_str = "Successor: None"
+            
+            if predecessor:
+                predecessor_info = f"{predecessor.id}@{predecessor.address}"
+                predecessor_str = f"Predecessor: {predecessor_info}"
+            else:
+                predecessor_str = "Predecessor: None"
             
             leader_info = ""
             if self.node.elector and self.node.elector.current_leader:
                 leader = self.node.elector.current_leader
                 is_leader = self.node.elector.is_leader
-                leader_info = f" | Leader: {leader.id}@{leader.address}" + (" (THIS NODE)" if is_leader else "")
+                leader_status = " (THIS NODE)" if is_leader else ""
+                leader_info = f" | Leader: {leader.id}@{leader.address}{leader_status}"
             
-            self.logger.info("=== Network Status ===")
-            self.logger.info(f"Current Node: {self.node.id}@{self.node.address}")
-            
-            if successor:
-                self.logger.info(f"Successor: {successor.id}@{successor.address}")
-            else:
-                self.logger.info("Successor: None")
-            
-            if predecessor:
-                self.logger.info(f"Predecessor: {predecessor.id}@{predecessor.address}")
-            else:
-                self.logger.info("Predecessor: None")
-            
+            # Determine network status
             is_isolated = (successor and successor.address == self.node.address) or not successor
-            self.logger.info(f"Status: {'Isolated (Leader)' if is_isolated else 'Connected to ring'}{leader_info}")
+            network_status = "Isolated (Leader)" if is_isolated else "Connected to ring"
+            
+            # Log all status information
+            self.logger.info("=" * 60)
+            self.logger.info(f"NETWORK STATUS")
+            self.logger.info(f"  Node: {self.node.id}@{self.node.address}")
+            self.logger.info(f"  {successor_str}")
+            self.logger.info(f"  {predecessor_str}")
+            self.logger.info(f"  Status: {network_status}{leader_info}")
+            self.logger.info("=" * 60)
             
         except Exception as e:
             self.logger.error(f"Error logging network status: {e}")
+
+    def _refresh_topology_info(self):
+        """
+        Refreshes successor and predecessor information by querying the current successor.
+        This ensures the logged info is up-to-date.
+        """
+        try:
+            with self.node.lock:
+                successor = self.node.finger[0]
+            
+            if not successor or successor.address == self.node.address:
+                # Node is isolated, no refresh needed
+                return
+            
+            # Query successor's predecessor to check for a better successor
+            try:
+                channel = grpc.insecure_channel(successor.address, options=[('grpc.keepalive_time_ms', 5000)])
+                try:
+                    stub = ChordServiceStub(channel)
+                    middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
+                    
+                    # If middle_node is alive and between us and current successor, update successor
+                    if middle_node and middle_node.address and middle_node.address != self.node.address:
+                        if is_in_interval(middle_node.id, self.node.id, successor.id):
+                            with self.node.lock:
+                                old_successor = self.node.finger[0]
+                                self.node.finger[0] = middle_node
+                            if old_successor.address != middle_node.address:
+                                self.logger.debug(f"Updated successor from {old_successor.address} to {middle_node.address}")
+                finally:
+                    channel.close()
+            except Exception as e:
+                self.logger.debug(f"Failed to refresh successor info: {e}")
+            
+            # Try to update predecessor from successor
+            try:
+                with self.node.lock:
+                    current_successor = self.node.finger[0]
+                
+                if current_successor and current_successor.address != self.node.address:
+                    channel = grpc.insecure_channel(current_successor.address, options=[('grpc.keepalive_time_ms', 5000)])
+                    try:
+                        stub = ChordServiceStub(channel)
+                        # Request successor to check its predecessor (which should be us or closer to us)
+                        stub.UpdatePredecessor(
+                            NodeInfo(id=self.node.id, address=self.node.address), 
+                            timeout=TIMEOUT
+                        )
+                    finally:
+                        channel.close()
+            except Exception as e:
+                self.logger.debug(f"Failed to refresh predecessor info: {e}")
+                
+        except Exception as e:
+            self.logger.debug(f"Error refreshing topology info: {e}")
 
     def discover_nodes(self) -> list[str]:
         """
@@ -248,7 +318,7 @@ class Discoverer(threading.Thread):
         """
         Main run method for the discovery thread.
         Periodically checks if the node is isolated and attempts to discover or join a ring.
-        Monitors topology changes but lets elector handle election timing.
+        Monitors topology changes and logs live network status.
         """
         self.logger.info(f"Starting discovery thread with {self.interval}s interval...")
         
@@ -272,6 +342,7 @@ class Discoverer(threading.Thread):
                     self._update_leader_status()
                     consecutive_unchanged = 0
                     prev_successor = successor
+                    self.log_network_status()
                 else:
                     consecutive_unchanged += 1
                 
@@ -279,9 +350,8 @@ class Discoverer(threading.Thread):
                     self.logger.info("Node is isolated. Attempting to discover and join ring...")
                     self.create_ring_or_join()
                 else:
-                    # Node is connected, just log status periodically to avoid spam
+                    # Node is connected, log status periodically for live monitoring
                     if consecutive_unchanged % 5 == 0:  # Log every 5 checks (50 seconds)
-                        self.logger.debug(f"Node is connected. Successor: {successor.id}@{successor.address}")
                         self.log_network_status()
                 
                 # Wait before next check
