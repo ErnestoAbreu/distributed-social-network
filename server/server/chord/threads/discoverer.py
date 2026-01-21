@@ -90,9 +90,7 @@ class Discoverer(threading.Thread):
                     existing_nodes.append(candidate_addr)
             
             self.logger.info(f'Discovered {len(existing_nodes)} potential nodes: {existing_nodes}')
-            
-            raise Exception("Simulated DNS failure for testing fallback")  # Remove this line to enable DNS discovery
-            
+
             return existing_nodes
             
         except Exception as e:
