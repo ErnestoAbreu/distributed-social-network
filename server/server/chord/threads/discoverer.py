@@ -6,6 +6,7 @@ import grpc
 import threading
 
 from server.server.chord.utils.config import TIMEOUT, DISCOVERY_INTERVAL
+from server.server.chord.utils.cache import load_node_cache, save_node_cache, add_to_node_cache
 from server.server.config import DEFAULT_PORT
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
 from server.server.chord.protos.chord_pb2 import Empty, ID, NodeInfo
@@ -69,6 +70,7 @@ class Discoverer(threading.Thread):
     def discover_nodes(self) -> list[str]:
         """
         Discover existing Chord nodes using Docker DNS.
+        Falls back to cached nodes if DNS discovery fails.
         
         Returns:
             list[str]: A list of discovered node addresses.
@@ -83,14 +85,32 @@ class Discoverer(threading.Thread):
             
             for ip in ip_list:
                 candidate_addr = f'{ip}:{DEFAULT_PORT}'
+                add_to_node_cache(candidate_addr)
                 if candidate_addr != self.node.address:
                     existing_nodes.append(candidate_addr)
             
             self.logger.info(f'Discovered {len(existing_nodes)} potential nodes: {existing_nodes}')
+            
+            raise Exception("Simulated DNS failure for testing fallback")  # Remove this line to enable DNS discovery
+            
+            return existing_nodes
+            
         except Exception as e:
             self.logger.debug(f'DNS discovery failed: {e}')
-        
-        return existing_nodes
+            
+            # Try cached nodes as fallback
+            self.logger.info('DNS failed, attempting to use cached nodes')
+            cached_nodes = load_node_cache()
+
+            self.logger.info(f'Loaded {len(cached_nodes)} cached nodes')
+            if cached_nodes:
+                # Filter out self
+                available_nodes = [addr for addr in cached_nodes if addr != self.node.address]
+                self.logger.info(f'Found {len(available_nodes)} cached nodes: {available_nodes}')
+                return available_nodes
+            else:
+                self.logger.warning('No cached nodes available')
+                return []
 
     def join(self, candidate_nodes: list[str]) -> bool:
         """
