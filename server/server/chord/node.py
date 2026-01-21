@@ -81,6 +81,7 @@ class ChordNode(ChordServiceServicer):
         self.predecessor: Optional[NodeInfo] = None
         self.storage: Storage = Storage()
         self.lock: threading.Lock = threading.Lock()
+        self.m_bits = M_BITS
 
         self.finger: list = [None] * M_BITS
         self.next_finger: int = 0

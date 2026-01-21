@@ -7,7 +7,7 @@ from typing import Dict, Tuple, Optional
 
 from server.server.chord.protos.chord_pb2 import Empty, KeyValue, Key, ID, Partition
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
-from server.server.chord.utils.config import TIMEOUT, REPLICATION_K, REPLICATION_INTERVAL
+from server.server.chord.utils.config import TIMEOUT, REPLICATION_K, REPLICATION_INTERVAL, M_BITS
 from server.server.chord.utils.hashing import hash_key
 
 from server.server.chord.storage import meta_ver_key, meta_del_key, is_meta_key, base_key_from_meta
@@ -96,9 +96,10 @@ class Replicator(threading.Thread):
         finally:
             channel.close()
 
-    def get_successor_list(self, count=REPLICATION_K):
+    def get_successor_list(self, count=REPLICATION_K, alive_only=False):
         """Get a list of the next 'count' successor nodes for replication.
-        Continues trying even if some nodes fail to maximize number of replicas."""
+        Continues trying even if some nodes fail to maximize number of replicas.
+        If alive_only=True, only returns alive nodes and continues searching until 'count' alive nodes are found."""
         successors = []
 
         with self.node.lock:
@@ -108,12 +109,20 @@ class Replicator(threading.Thread):
             return successors
         
         # Start with immediate successor
-        successors.append(current)
+        if alive_only:
+            if self.ping_node(current):
+                successors.append(current)
+        else:
+            successors.append(current)
 
         # Get additional successors by querying each node for its successor
         # Try multiple times even if some nodes fail
-        for attempt in range(count * 2):
-            if len(successors) >= count:
+        # When alive_only is True, we need to try more attempts to get enough alive nodes
+        max_attempts = count * 4 if alive_only else count * 2
+        
+        count_alive = 1
+        for attempt in range(max_attempts):
+            if count_alive >= count:
                 break
                 
             try:
@@ -123,20 +132,29 @@ class Replicator(threading.Thread):
                 channel = grpc.insecure_channel(current.address)
                 try:
                     stub = ChordServiceStub(channel)
-                    next_node = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                    next_node = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
                 finally:
                     channel.close()
 
                 if next_node and next_node.address != self.node.address:
                     # Avoid duplicates
                     if not any(s.address == next_node.address for s in successors):
-                        successors.append(next_node)
+                        if alive_only:
+                            if self.ping_node(next_node):
+                                count_alive += 1
+                                successors.append(next_node)
+                        else:
+                            if self.ping_node(next_node):
+                                count_alive += 1
+                            successors.append(next_node)
                     current = next_node
                 else:
                     break
 
             except Exception as e:
                 self.logger.debug(f"Failed to get successor from {current.address}: {e}. Trying to continue...")
+                # Try to continue with the next node in the chain even if one fails
+                current = next_node if 'next_node' in locals() else None
         return successors
     
     def ping_node(self, node):
@@ -157,15 +175,9 @@ class Replicator(threading.Thread):
 
     def replicate_data(self):
         """Replica local data + tombstones to successor nodes (LWW by version)"""
-        successors = self.get_successor_list(REPLICATION_K - 1)
+        # Get exactly REPLICATION_K alive successors (excluding self)
+        alive_successors = self.get_successor_list(REPLICATION_K - 1, alive_only=True)
 
-        if not successors:
-            self.logger.debug("No successors available for replication")
-            return
-        
-        # Filter out dead nodes before attempting replication
-        alive_successors = [s for s in successors if self.ping_node(s)]
-        
         if not alive_successors:
             self.logger.debug("No alive successors available for replication")
             return
@@ -182,29 +194,46 @@ class Replicator(threading.Thread):
         )
 
         failed_replications = {}
+        successful_replications = {}
 
-        for key in base_items.keys():
-            for successor in alive_successors:
+        for successor in alive_successors:
+            success_count = 0
+            fail_count = 0
+            
+            for key in base_items.keys():
                 try:
                     self._replicate_set_to_node(successor, key)
+                    success_count += 1
                 except Exception as e:
                     self.logger.error(f"Failed to replicate set {key} to {successor.address}: {e}")
                     if successor.address not in failed_replications:
                         failed_replications[successor.address] = []
                     failed_replications[successor.address].append(('set', key))
+                    fail_count += 1
 
-        for key in deleted_items.keys():
-            for successor in alive_successors:
+            for key in deleted_items.keys():
                 try:
                     self._replicate_remove_to_node(successor, key)
+                    success_count += 1
                 except Exception as e:
                     self.logger.error(f"Failed to replicate delete {key} to {successor.address}: {e}")
                     if successor.address not in failed_replications:
                         failed_replications[successor.address] = []
                     failed_replications[successor.address].append(('remove', key))
+                    fail_count += 1
+            
+            if fail_count == 0:
+                self.logger.info(f"Successfully replicated {success_count} items to {successor.address}")
+                successful_replications[successor.address] = success_count
+            else:
+                self.logger.warning(f"Replicated {success_count} items to {successor.address} with {fail_count} failures")
         
         if failed_replications:
             self.logger.warning(f"Replication failures: {failed_replications}")
+        else:
+            self.logger.info(
+                f"Successfully replicated all {len(base_items)} keys + {len(deleted_items)} tombstones to {len(alive_successors)} alive successors"
+            )
 
     def _replicate_set_to_node(self, node, key: str):
         local_ver = self._local_version(key)
@@ -330,7 +359,7 @@ class Replicator(threading.Thread):
                     # Get successors of the responsible node
                     current = responsible_node
                     for _ in range(REPLICATION_K - 1):
-                        next_resp = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                        next_resp = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
                         if next_resp and next_resp.address == self.node.address:
                             # We're one of the K replicas
                             return True
@@ -349,13 +378,14 @@ class Replicator(threading.Thread):
 
     def fetch_replicas_from_successors(self):
         """Fetch replicas from K successors and merge (LWW)"""
-        successors = self.get_successor_list(REPLICATION_K - 1)
+        # Get alive successors for fetching replicas
+        successors = self.get_successor_list(REPLICATION_K - 1, alive_only=True)
 
         if not successors:
-            self.logger.debug("No valid successors to fetch replicas from")
+            self.logger.debug("No valid alive successors to fetch replicas from")
             return
         
-        self.logger.info(f"Fetching replicas from {len(successors)} successors")
+        self.logger.info(f"Fetching replicas from {len(successors)} alive successors")
         
         for successor in successors:
             try:
@@ -512,8 +542,8 @@ class Replicator(threading.Thread):
         # Collect all unique nodes in the ring to fetch from
         nodes_to_fetch = set()
         
-        # Get successors
-        successors = self.get_successor_list(REPLICATION_K)
+        # Get alive successors
+        successors = self.get_successor_list(REPLICATION_K, alive_only=True)
         for succ in successors:
             if succ and succ.address != self.node.address:
                 nodes_to_fetch.add(succ.address)
@@ -622,7 +652,7 @@ class Replicator(threading.Thread):
                             stub = ChordServiceStub(channel)
                             current = responsible
                             for _ in range(REPLICATION_K - 1):
-                                next_resp = stub.FindSuccessor(ID(id=current.id), timeout=TIMEOUT)
+                                next_resp = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.id.bit_length())), timeout=TIMEOUT)
                                 if next_resp and next_resp.address == self.node.address:
                                     should_keep = True
                                     break
