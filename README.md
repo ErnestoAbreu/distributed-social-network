@@ -22,6 +22,9 @@ docker build -f Dockerfile.server -t social-server:latest .
 # Construir imagen del Cliente
 docker build -f Dockerfile.client -t social-client:latest .
 
+# Construir imagen del Router
+docker build -f Dockerfile.router -t social-router:latest .
+
 ```
 
 #### Paso C: Desplegar el Anillo de Servidores (Backend)
@@ -82,7 +85,7 @@ docker run -d \
 
 ```bash
 docker run -d \
-  --name client-1 \
+  --name client-2 \
   --network social-network \
   --network-alias socialnet_client \
   -p 8502:8501 \
@@ -92,7 +95,7 @@ docker run -d \
 
 ```bash
 docker run -d \
-  --name client-1 \
+  --name client-3 \
   --network social-network \
   --network-alias socialnet_client \
   -p 8503:8501 \
@@ -100,25 +103,51 @@ docker run -d \
 
 ```
 
+#### Paso E: Desplegar el Router (Recomendado)
+
+El router proporciona un punto de acceso único que automáticamente descubre los clientes disponibles y maneja el failover. Solo necesitas acceder al router en el puerto 8080, y él se encargará de redirigir al cliente activo.
+
+```bash
+docker run -d \
+  --name router \
+  --network social-network \
+  -p 8080:8080 \
+  social-router:latest
+
+```
+
+**Ventajas del Router:**
+- **Punto de acceso único**: Accede siempre a `http://localhost:8080`
+- **Failover automático**: Si un cliente falla, el router cambia automáticamente a otro cliente disponible
+- **Monitoreo continuo**: Nginx maneja la proxificación y WebSockets automáticamente
+
 ---
 
 ### 2. Verificación y Limpieza
 
 **Cómo probar:**
 
-1. Abre tu navegador en `http://localhost:850x`, segun el cliente.
+**Con Router (Recomendado):**
+1. Abre tu navegador en `http://localhost:8080`
+2. El router te redirigirá automáticamente al cliente activo
+3. Si un cliente falla, el router cambiará automáticamente a otro cliente disponible
+
+**Sin Router (Acceso directo):**
+1. Abre tu navegador en `http://localhost:850x`, según el cliente.
 2. Deberías ver la interfaz de Login.
 3. Si intentas registrarte, el cliente buscará `socialnet_server`, encontrará uno de los nodos (node-1, 2 o 3) y enviará la petición gRPC.
 
 **Comandos útiles para debug:**
 
 * Ver logs del nodo 1: `docker logs -f node-1`
+* Ver logs del router: `docker logs -f router`
+* Ver logs del cliente 1: `docker logs -f client-1`
 * Ver si se ven en la red: `docker network inspect social-network`
 
 **Cómo borrar todo para volver a empezar:**
 
 ```bash
-docker rm -f node-1 node-2 node-3 client-1 client-2 client-3
+docker rm -f node-1 node-2 node-3 client-1 client-2 client-3 router
 docker network rm social-network
 
 ```

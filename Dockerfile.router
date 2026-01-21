@@ -1,0 +1,12 @@
+FROM nginx:alpine
+
+RUN apk add --no-cache python3 bind-tools
+
+COPY router/nginx.conf /etc/nginx/nginx.conf
+COPY router/dns_cache.py /usr/local/bin/dns_cache.py
+COPY router/nginx_updater.py /usr/local/bin/nginx_updater.py
+
+EXPOSE 8080
+
+# Execute monitoring in background and nginx in foreground
+CMD ["sh", "-c", "python3 /usr/local/bin/nginx_updater.py & nginx -g \"daemon off;\""]
