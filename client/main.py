@@ -132,7 +132,9 @@ if not cookies.ready():
 if st.session_state.logged_user is None and cookies.get('logged_user'):
     st.session_state.logged_user = cookies.get('logged_user')
     st.session_state['token'] = cookies.get('token')
-    st.session_state.current_view = 'posts'
+    # Restore the view the user was on, default to posts if not saved
+    saved_view = cookies.get('current_view')
+    st.session_state.current_view = saved_view if saved_view else 'posts'
     logger.info(f'Restored session from cookies for user: {st.session_state.logged_user}')
 
 
@@ -152,10 +154,15 @@ def navbar():
             st.success(f"**Logged in as:**\n### @{st.session_state.logged_user}")
             st.markdown("---")
             
+            # Set default index based on current view
+            view_to_index = {'posts': 0, 'relationships': 1}
+            default_index = view_to_index.get(st.session_state.current_view, 0)
+            
             option = st.radio(
                 '**Navigation**',
                 ['💬 Posts', '🤝 Relationships', '🚪 Logout'],
-                format_func=lambda x: x.split(' ', 1)[1]
+                format_func=lambda x: x.split(' ', 1)[1],
+                index=default_index
             )
 
         if option == 'Login/Register':
@@ -168,6 +175,7 @@ def navbar():
         
         if option == '💬 Posts' or option == 'Posts':
             switch_view('posts')
+            return
 
         if option == '🚪 Logout' or option == 'Logout':
             st.session_state.logged_user = None
@@ -797,6 +805,11 @@ def post_view():
 
 # Navegación principal
 navbar()
+
+# Save current view to cookies for page refresh
+if st.session_state.get('logged_user'):
+    cookies['current_view'] = st.session_state.current_view
+    cookies.save()
 
 # Hard guard: never render protected views without a valid session.
 if st.session_state.current_view != 'login':
