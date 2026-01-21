@@ -5,6 +5,7 @@ import streamlit as st
 from datetime import datetime, timezone
 import os
 import streamlit_cookies_manager
+import re
 
 from client.client.auth import register, login
 from client.client.relations import follow_user, unfollow_user, get_followers, get_following
@@ -259,6 +260,14 @@ def handle_login(username, password):
     else:
         _popup_error('❌ **Invalid credentials** - Please check your username and password')
 
+def is_valid_email_syntax(email):
+    """
+    Checks if the email string matches a basic email format using regex.
+    """
+    
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    
+    return True if re.fullmatch(pattern, email) else False
 
 def handle_register(username, email, name, password):
     if not username or not email or not name or not password:
@@ -267,6 +276,10 @@ def handle_register(username, email, name, password):
         
     if '|' in username:
         _popup_error('❌ **Username cannot contain the "|" character**')
+        return
+    
+    if not is_valid_email_syntax(email):
+        _popup_error('❌ **Email is not valid**')
         return
 
     if len(username) < MIN_USERNAME_LENGTH or len(username) > MAX_USERNAME_LENGTH:
