@@ -6,22 +6,79 @@ import os
 import subprocess
 import grpc
 import streamlit as st
+import asyncio
 from typing import Optional
 
-from client.client.constants import *
+from client.client.config import *
+from client.client.file_cache import FileCache
 
 logger = logging.getLogger('socialnet.client.discoverer')
 logger.setLevel(logging.INFO)
 
+# Add console handler to display logs
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
 GLOBAL_SERVER = None
 GLOBAL_BACKGROUND_CHECK_STARTED = False
 
+def _run_async(coro):
+    """Helper to run async functions in sync context."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
-class NoServersAvailableError(ConnectionError):
-    """Raised when the client cannot find any alive server to contact."""
+
+def _load_server_cache():
+    """Load cached server addresses."""
+    try:
+        cache_data = _run_async(FileCache.get(SERVER_CACHE_KEY))
+        if cache_data:
+            servers = cache_data.get('servers', [])
+            timestamp = cache_data.get('timestamp', 0)
+            
+            # Check if cache is not too old
+            if time.time() - timestamp < MAX_CACHE_AGE:
+                logger.debug(f'Loaded {len(servers)} servers from cache')
+                return servers
+            else:
+                logger.warning('Cache expired, ignoring')
+    except Exception as e:
+        logger.warning(f'Failed to load cache: {e}')
+    return []
 
 
-NO_SERVERS_AVAILABLE_MESSAGE = 'No servers are available right now. Please try again later.'
+def _save_server_cache(servers):
+    """Save server addresses to cache."""
+    try:
+        cache_data = {
+            'servers': servers,
+            'timestamp': time.time()
+        }
+        _run_async(FileCache.set(SERVER_CACHE_KEY, cache_data))
+        logger.debug(f'Saved {len(servers)} servers to cache')
+    except Exception as e:
+        logger.warning(f'Failed to save cache: {e}')
+
+
+def _add_to_server_cache(server_ip):
+    """Add a server to the cache if not already present."""
+    try:
+        cached_servers = _load_server_cache()
+        if server_ip not in cached_servers:
+            cached_servers.insert(0, server_ip)  # Add to front
+            # Keep only last 10 servers
+            cached_servers = cached_servers[:10]
+            _save_server_cache(cached_servers)
+    except Exception as e:
+        logger.warning(f'Failed to update cache: {e}')
 
 
 def _set_global_server(new_server: Optional[str], *, source: str) -> None:
@@ -108,7 +165,7 @@ def is_alive(host, port, timeout=10):
             logger.debug(f'{host}:{port} is reachable')
             return True
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
-        logger.debug(f'{host}:{port} not reachable: {e}')
+        logger.warning(f'{host}:{port} not reachable: {e}')
         return False
 
 def discover():
@@ -119,34 +176,66 @@ def discover():
     if env_host and env_port:
         logger.info(f'Using SERVER_HOST/SERVER_PORT from environment: {env_host}:{env_port}')
         if is_alive(env_host, int(env_port)):
+            _add_to_server_cache(env_host)
             return env_host, env_host
         else:
             logger.warning(f'{env_host}:{env_port} not alive, falling back to DNS discovery')
 
     # resolve service name via nslookup
     service_name = os.getenv('SERVICE_SERVER', 'socialnet_server')
+    dns_success = False
+    
     try:
         result = subprocess.run(['nslookup', service_name], capture_output=True, text=True, check=True)
         logger.debug(f'nslookup output:\n{result.stdout}')
 
         ips = []
-        for line in result.stdout.splitlines():
+        lines = result.stdout.splitlines()
+        for i, line in enumerate(lines):
             line = line.strip()
-            if line.startswith('Address:') and not line.startswith('Address: 127.0.0.1'):
-                ip = line.split('Address:')[-1].strip()
-                ips.append(ip)
+            # Look for lines that say "Name: service_name"
+            if line.startswith('Name:') and service_name in line:
+                # The next line should contain the Address
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line.startswith('Address:') and not next_line.startswith('Address: 127.0.0.1'):
+                        ip = next_line.split('Address:')[-1].strip()
+                        ips.append(ip)
+
+        logger.debug(f'Extracted IPs from nslookup: {ips}')
+        for ip in ips:
+            _add_to_server_cache(ip)
 
         for ip in ips:
             port_to_check = int(env_port) if env_port else int(AUTH)
             if is_alive(ip, port_to_check):
                 logger.info(f'Discovered alive server via DNS: {ip}')
+                _add_to_server_cache(ip)
                 return ip, ip
 
         logger.warning('No alive servers found via nslookup')
+        dns_success = False
 
     except subprocess.CalledProcessError as e:
         stderr = getattr(e, 'stderr', '')
         logger.error(f'nslookup failed: {e} {stderr}')
+        dns_success = False
+
+    # If DNS failed or no alive servers found, try cache
+    if not dns_success:
+        logger.debug('DNS discovery failed, trying cached servers')
+        cached_servers = _load_server_cache()
+        
+        if cached_servers:
+            port_to_check = int(env_port) if env_port else int(AUTH)
+            for server_ip in cached_servers:
+                if is_alive(server_ip, port_to_check):
+                    logger.debug(f'Found alive server from cache: {server_ip}')
+                    return server_ip, server_ip
+            
+            logger.warning('No alive servers in cache')
+        else:
+            logger.warning('Cache is empty')
 
     raise RuntimeError('No server found')
 
