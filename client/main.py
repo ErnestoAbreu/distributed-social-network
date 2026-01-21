@@ -9,7 +9,7 @@ from client.client.auth import register, login
 from client.client.relations import follow_user, unfollow_user, get_followers, get_following
 from client.client.posts import publish, repost, get_posts, get_posts_id, get_post
 
-from client.client.constants import *
+from client.client.config import *
 from client.client.discoverer import start_background_check, NoServersAvailableError, NO_SERVERS_AVAILABLE_MESSAGE
 
 

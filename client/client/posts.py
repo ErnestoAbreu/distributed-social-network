@@ -2,7 +2,7 @@ import logging
 import grpc
 import base64
 
-from client.client.constants import POST
+from client.client.config import POST
 from client.client.discoverer import get_host, get_authenticated_channel
 from client.client.file_cache import FileCache
 from client.client.utils import retry_on_failure

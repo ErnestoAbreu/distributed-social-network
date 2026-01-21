@@ -4,7 +4,7 @@ import time
 import asyncio
 from functools import wraps
 
-from client.client.constants import MAX_RETRIES, RETRY_DELAY
+from client.client.config import MAX_RETRIES, RETRY_DELAY
 
 logger = logging.getLogger('socialnet.client.utils')
 

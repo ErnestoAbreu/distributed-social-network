@@ -6,7 +6,7 @@ from protos.auth_pb2_grpc import AuthServiceStub
 from protos import models_pb2
 
 from client.client.discoverer import get_host
-from client.client.constants import *
+from client.client.config import *
 from client.client.utils import retry_on_failure
 
 logger = logging.getLogger('socialnet.client.auth')
