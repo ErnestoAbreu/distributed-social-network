@@ -7,7 +7,7 @@ from dns_cache import discover_clients
 logger = logging.getLogger('nginx-updater')
 
 CONF_FILE = '/etc/nginx/nginx.conf'
-UPDATE_INTERVAL = 30
+UPDATE_INTERVAL = 10
 PORT = 8501
 
 
