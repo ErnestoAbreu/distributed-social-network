@@ -76,32 +76,26 @@ docker run -d \
   --network social-network \
   --network-alias socialnet_client \
   -p 8501:8501 \
-  -e SERVER_HOST=socialnet_server \
-  -e SERVER_PORT=50000 \
   social-client:latest
 
 ```
 
 ```bash
 docker run -d \
-  --name client-2 \
+  --name client-1 \
   --network social-network \
   --network-alias socialnet_client \
   -p 8502:8501 \
-  -e SERVER_HOST=socialnet_server \
-  -e SERVER_PORT=50000 \
   social-client:latest
 
 ```
 
 ```bash
 docker run -d \
-  --name client-3 \
+  --name client-1 \
   --network social-network \
   --network-alias socialnet_client \
   -p 8503:8501 \
-  -e SERVER_HOST=socialnet_server \
-  -e SERVER_PORT=50000 \
   social-client:latest
 
 ```
