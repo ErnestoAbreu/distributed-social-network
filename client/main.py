@@ -4,10 +4,11 @@ import markdown
 import streamlit as st
 from datetime import datetime, timezone
 import os
+import streamlit_cookies_manager
 
 from client.client.auth import register, login
 from client.client.relations import follow_user, unfollow_user, get_followers, get_following
-from client.client.posts import publish, repost, get_posts, get_posts_id, get_post
+from client.client.postexamples import publish, repost, get_posts, get_posts_id, get_post
 
 from client.client.config import *
 from client.client.discoverer import start_background_check, NoServersAvailableError, NO_SERVERS_AVAILABLE_MESSAGE
@@ -23,6 +24,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize cookies manager
+cookies = streamlit_cookies_manager.CookieManager()
 
 start_background_check()
 
@@ -121,6 +125,16 @@ if 'current_view' not in st.session_state:
 if 'token' not in st.session_state:
     st.session_state['token'] = None
 
+# Load session from cookies on startup
+if not cookies.ready():
+    st.stop()
+
+if st.session_state.logged_user is None and cookies.get('logged_user'):
+    st.session_state.logged_user = cookies.get('logged_user')
+    st.session_state['token'] = cookies.get('token')
+    st.session_state.current_view = 'posts'
+    logger.info(f'Restored session from cookies for user: {st.session_state.logged_user}')
+
 
 def switch_view(view):
     st.session_state.current_view = view
@@ -158,6 +172,9 @@ def navbar():
         if option == '🚪 Logout' or option == 'Logout':
             st.session_state.logged_user = None
             _clear_session_keys('token', 'posts', 'repost_clicked', 'repost_id', 'follow_username')
+            cookies['logged_user'] = ''
+            cookies['token'] = ''
+            cookies.save()
             switch_view('login')
             st.rerun()
         
@@ -224,6 +241,10 @@ def handle_login(username, password):
     if token:
         st.session_state.logged_user = username
         st.session_state['token'] = token
+        # Save to cookies for persistence
+        cookies['logged_user'] = username
+        cookies['token'] = token
+        cookies.save()
         st.success(f'✅ **Welcome back, {username}!**')
         switch_view('posts')
         st.rerun()
