@@ -430,22 +430,36 @@ class Replicator(threading.Thread):
     # ---------------- Partition / resolve (server-side logic) ----------------
 
     def set_partition(self, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> bool:
-        """Apply a partition update using LWW semantics."""
+        """Merge incoming partition with union semantics and LWW on conflicts."""
         try:
-            # Apply deletes first
-            for key, del_ver in removed.items():
-                local_ver = self._local_version(key)
-                local_del = self._local_deleted_version(key)
-                if del_ver > local_del and del_ver >= local_ver:
-                    self.node.storage.delete(key, version=int(del_ver))
+            keys = set(values.keys()) | set(removed.keys()) | set(versions.keys())
 
-            # Apply sets
-            for key, val in values.items():
+            for key in keys:
+                if is_meta_key(key):
+                    continue
+
+                inc_val = values.get(key)
                 inc_ver = int(versions.get(key, 0))
+                inc_del = int(removed.get(key, 0))
+
+                local_val = self.node.storage.get(key)
                 local_ver = self._local_version(key)
                 local_del = self._local_deleted_version(key)
-                if inc_ver > local_ver and local_del < inc_ver:
-                    self.node.storage.put(key, val, version=inc_ver if inc_ver > 0 else None)
+
+                winner = self._pick_winner(inc_val, inc_ver, inc_del, local_val, local_ver, local_del)
+                if winner is None:
+                    continue
+
+                source, state, value, ver = winner
+
+                # Only apply if the incoming side won
+                if source != "inc":
+                    continue
+
+                if state == "del":
+                    self.node.storage.delete(key, version=ver if ver > 0 else None)
+                else:
+                    self.node.storage.put(key, value, version=ver if ver > 0 else None)
 
             return True
         except Exception as e:
@@ -458,44 +472,44 @@ class Replicator(threading.Thread):
         res_versions: Dict[str, int] = {}
         res_removed: Dict[str, int] = {}
 
-        # Resolve sets
-        for key, incoming_val in values.items():
+        # Consider union of incoming keys and our local keys/tombstones
+        local_values = self.node.storage.base_items()
+        local_removed = self.node.storage.deleted_items()
+
+        keys = set(values.keys()) | set(versions.keys()) | set(removed.keys()) | set(local_values.keys()) | set(local_removed.keys())
+
+        for key in keys:
+            if is_meta_key(key):
+                continue
+
+            inc_val = values.get(key)
             inc_ver = int(versions.get(key, 0))
+            inc_del = int(removed.get(key, 0))
+
+            local_val = local_values.get(key)
             local_ver = self._local_version(key)
             local_del = self._local_deleted_version(key)
 
-            # Local delete wins
-            if local_del >= local_ver and local_del > 0:
-                if local_del > inc_ver:
-                    res_removed[key] = local_del
-                else:
-                    self.node.storage.put(key, incoming_val, version=inc_ver if inc_ver > 0 else None)
+            winner = self._pick_winner(inc_val, inc_ver, inc_del, local_val, local_ver, local_del)
+            if winner is None:
                 continue
 
-            if local_ver > inc_ver:
-                local_val = self.node.storage.get(key) or ""
-                res_values[key] = local_val
-                res_versions[key] = local_ver
+            source, state, value, ver = winner
+
+            # Apply winner locally
+            if state == "del":
+                self.node.storage.delete(key, version=ver if ver > 0 else None)
+                res_removed[key] = ver
             else:
-                self.node.storage.put(key, incoming_val, version=inc_ver if inc_ver > 0 else None)
+                self.node.storage.put(key, value, version=ver if ver > 0 else None)
+                res_values[key] = value
+                res_versions[key] = ver
 
-        # Resolve deletes
-        for key, inc_del in removed.items():
-            inc_del = int(inc_del)
-            local_ver = self._local_version(key)
-            local_del = self._local_deleted_version(key)
-
-            if local_del > inc_del:
-                res_removed[key] = local_del
-                continue
-
-            if local_ver > inc_del:
-                local_val = self.node.storage.get(key) or ""
-                res_values[key] = local_val
-                res_versions[key] = local_ver
-                continue
-
-            self.node.storage.delete(key, version=inc_del)
+            # If local was newer and we won, ensure caller keeps our version
+            if source == "local" and state == "del":
+                res_removed[key] = ver
+            elif source == "local" and state == "val":
+                res_versions[key] = ver
 
         return res_values, res_versions, res_removed
 
@@ -718,3 +732,73 @@ class Replicator(threading.Thread):
                 self.logger.error(f"Error during replication cycle: {e}")
             
             time.sleep(self.interval)
+
+    # ---------------- Merge helper ----------------
+
+    def _pick_winner(self, inc_val: Optional[str], inc_ver: int, inc_del: int,
+                     local_val: Optional[str], local_ver: int, local_del: int):
+        """Return (source, state, value, version) for the winning state.
+
+        source: "inc" | "local"
+        state:  "val" | "del"
+        version: the timestamp chosen for the winning state (>=0)
+        value: only set when state == "val"
+        """
+
+        inc_state = None
+        local_state = None
+
+        # Determine incoming state and timestamp
+        if inc_del >= inc_ver and inc_del > 0:
+            inc_state = ("del", inc_del)
+        elif inc_val is not None or inc_ver > 0:
+            inc_state = ("val", inc_ver)
+        elif inc_del > 0:
+            inc_state = ("del", inc_del)
+
+        # Determine local state and timestamp
+        if local_del >= local_ver and local_del > 0:
+            local_state = ("del", local_del)
+        elif local_val is not None or local_ver > 0:
+            local_state = ("val", local_ver)
+        elif local_del > 0:
+            local_state = ("del", local_del)
+
+        if not inc_state and not local_state:
+            return None
+
+        # Fill missing timestamps with 0 so comparisons work
+        inc_ts = inc_state[1] if inc_state else 0
+        local_ts = local_state[1] if local_state else 0
+
+        # Decide winner
+        if inc_state and (inc_ts > local_ts):
+            win_source, win_state, win_ver = "inc", inc_state[0], inc_ts
+        elif local_state and (local_ts > inc_ts):
+            win_source, win_state, win_ver = "local", local_state[0], local_ts
+        else:
+            # Tie: prefer value over delete, and prefer incoming to break ties if both are same state
+            if inc_state and local_state:
+                if inc_state[0] == "val" and local_state[0] == "del":
+                    win_source, win_state, win_ver = "inc", "val", inc_ts
+                elif inc_state[0] == "del" and local_state[0] == "val":
+                    win_source, win_state, win_ver = "local", "val", local_ts
+                else:
+                    # Same state, default to local to reduce churn
+                    win_source, win_state, win_ver = "local", local_state[0], local_ts
+            else:
+                # Only one side present (timestamps equal and zero)
+                if inc_state:
+                    win_source, win_state, win_ver = "inc", inc_state[0], inc_ts
+                else:
+                    win_source, win_state, win_ver = "local", local_state[0], local_ts
+
+        win_val = inc_val if win_source == "inc" else local_val
+        if win_state == "del":
+            win_val = None
+
+        # Ensure non-zero version for writes
+        if win_ver <= 0:
+            win_ver = self.node.now_version()
+
+        return win_source, win_state, win_val, win_ver
