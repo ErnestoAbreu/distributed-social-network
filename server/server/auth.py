@@ -11,6 +11,7 @@ from protos.models_pb2 import User
 from protos.auth_pb2 import RegisterResponse, LoginResponse
 from protos.auth_pb2_grpc import AuthServiceServicer, add_AuthServiceServicer_to_server
 from server.server.chord.core import exists, load, save
+from server.server.security import get_tls_config
 
 logger = logging.getLogger('socialnet.server.auth')
 
@@ -123,9 +124,13 @@ def start_auth_service(addr, auth_repo: AuthRepository, max_workers: int = 10):
     SECRET_KEY = os.getenv("SECRET_KEY", 'dev_secret_123')
     add_AuthServiceServicer_to_server(AuthService(auth_repo, SECRET_KEY, 'HS256'), server)
 
-    server.add_insecure_port(addr)
-    server.start()
+    credentials = get_tls_config().load_credentials()
+    if credentials:
+        server.add_secure_port(addr, credentials)
+        logger.info(f'Auth service started on secure port {addr}')
+    else:
+        server.add_insecure_port(addr)
+        logger.warning(f'Auth service started on insecure port {addr}')
     
-    port = str(addr).split(':')
-    logger.info(f'Auth service started on port {port[1]}')
+    server.start()
     server.wait_for_termination()

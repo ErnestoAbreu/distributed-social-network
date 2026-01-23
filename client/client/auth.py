@@ -8,6 +8,7 @@ from protos import models_pb2
 from client.client.discoverer import get_host
 from client.client.config import *
 from client.client.utils import retry_on_failure
+from client.client.security import secure_channel
 
 logger = logging.getLogger('socialnet.client.auth')
 # logger.setLevel(logging.INFO)
@@ -15,7 +16,7 @@ logger = logging.getLogger('socialnet.client.auth')
 @retry_on_failure()
 def register(username, email, name, password):
     host = get_host(AUTH)
-    channel = grpc.insecure_channel(host)
+    channel = secure_channel(host)
     stub = AuthServiceStub(channel)
     user = models_pb2.User(user_id=username, email=email, name=name, password_hash=password)
     request = RegisterRequest(user=user)
@@ -27,7 +28,7 @@ def register(username, email, name, password):
 @retry_on_failure()
 def login(username, password):
     host = get_host(AUTH)
-    channel = grpc.insecure_channel(host)
+    channel = secure_channel(host)
     stub = AuthServiceStub(channel)
     request = LoginRequest(username=username, password=password)
     

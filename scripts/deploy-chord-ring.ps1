@@ -3,34 +3,30 @@
 Write-Host "Desplegando Red Social Distribuida con Chord" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 
-# Paso 1: Crear la red overlay
-# Write-Host ""
-# Write-Host "Paso 1: Creando red overlay 'social-network'..." -ForegroundColor Yellow
-# docker network create --driver overlay --attachable social-network 2>$null
-# if ($LASTEXITCODE -ne 0) {
-#     Write-Host "Red ya existe, continuando..." -ForegroundColor DarkYellow
-# }
+# Paso 1: Crear red overlay
+Write-Host ""
+Write-Host "Paso 1: Creando red overlay 'social-network'..." -ForegroundColor Yellow
+docker network create --driver overlay --attachable social-network 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Red ya existe, continuando..." -ForegroundColor DarkYellow
+}
 
 # Paso 2: Construir imágenes
 Write-Host ""
 Write-Host "Paso 2: Construyendo imágenes Docker..." -ForegroundColor Yellow
 docker build -f Dockerfile.server -t social-server:latest .
 Write-Host "Imagen del servidor construida" -ForegroundColor Green
-# docker build -f Dockerfile.client -t social-client:latest .
-# Write-Host "Imagen del cliente construida" -ForegroundColor Green
 
-# Paso 3: Desplegar nodo (nodo-1)
+docker build -f Dockerfile.client -t social-client:latest .
+Write-Host "Imagen del cliente construida" -ForegroundColor Green
+
+# docker build -f Dockerfile.router -t social-router:latest .
+# Write-Host "Imagen del router construida" -ForegroundColor Green
+
+
+# Paso 3: Desplegar nodos
 Write-Host ""
-Write-Host "Paso 3: Desplegando NODO (node-0)..." -ForegroundColor Yellow
-docker run -d --name node-0 --hostname node-0 --network social-network --network-alias socialnet_server social-server:latest
-
-Write-Host "Esperando 5 segundos para que el nodo se estabilice..." -ForegroundColor Gray
-Start-Sleep -Seconds 5
-Write-Host "Nodo desplegado" -ForegroundColor Green
-
-# Paso 4: Desplegar nodos adicionales
-Write-Host ""
-Write-Host "Paso 4: Desplegando nodos adicionales..." -ForegroundColor Yellow
+Write-Host "Paso 3: Desplegando nodos de servidor..." -ForegroundColor Yellow
 
 $nodes = 1..1
 foreach ($i in $nodes) {
@@ -48,12 +44,17 @@ foreach ($i in $nodes) {
 
 Write-Host "Todos los nodos del anillo desplegados" -ForegroundColor Green
 
-# Paso 5: Desplegar cliente
-# Write-Host ""
-# Write-Host "Paso 5: Desplegando cliente Streamlit..." -ForegroundColor Yellow
-# docker run -d --name social-client --network social-network -p 8501:8501 -e SERVER_HOST=socialnet_server -e SERVER_PORT=50000 social-client:latest
-
+# Paso 4: Desplegar cliente
+Write-Host ""
+Write-Host "Paso 4: Desplegando clientes Streamlit..." -ForegroundColor Yellow
+docker service create --name client-1 --network social-network --publish 8501:8501 social-client:latest
 Write-Host "Cliente desplegado en http://localhost:8501" -ForegroundColor Green
+
+#Paso 5: Desplegar router (opcional)
+# Write-Host ""
+# Write-Host "Paso 5: Desplegando router..." -ForegroundColor Yellow
+# docker run -d --name router --network social-network -p 8080:8080 social-router:latest
+
 
 # Resumen
 Write-Host ""

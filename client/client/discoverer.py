@@ -5,6 +5,7 @@ import time
 import os
 import subprocess
 import grpc
+from client.client.security import secure_channel
 import streamlit as st
 import asyncio
 from typing import Optional
@@ -258,7 +259,7 @@ class AuthInterceptor(grpc.UnaryUnaryClientInterceptor, grpc.UnaryStreamClientIn
 
 def get_authenticated_channel(host, token):
     auth_interceptor = AuthInterceptor(token)
-    channel = grpc.insecure_channel(host)
+    channel = secure_channel(host)
     return grpc.intercept_channel(channel, auth_interceptor)
 
 def update_server_background():

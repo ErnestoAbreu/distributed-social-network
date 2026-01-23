@@ -9,6 +9,7 @@ from server.server.chord.core import exists, load, save
 from protos.models_pb2 import UserFollowing, UserFollowers
 from protos.relations_pb2 import FollowResponse, UnfollowResponse, GetFollowingResponse, GetFollowersResponse
 from protos.relations_pb2_grpc import RelationsServiceServicer, add_RelationsServiceServicer_to_server
+from server.server.security import get_tls_config
 
 logger = logging.getLogger('socialnet.server.relations')
 logger.setLevel(logging.INFO)
@@ -244,10 +245,14 @@ class RelationsService(RelationsServiceServicer):
 def start_relations_service(addr, relations_repo: RelationsRepository, auth_repo: AuthRepository, max_workers: int = 10):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     add_RelationsServiceServicer_to_server(RelationsService(relations_repo, auth_repo), server)
-    server.add_insecure_port(addr)
+
+    credentials = get_tls_config().load_credentials()
+    if credentials:
+        server.add_secure_port(addr, credentials)
+        logger.info(f'Relations service started on secure port {addr}')
+    else:
+        server.add_insecure_port(addr)
+        logger.warning(f'Relations service started on insecure port {addr}')
+
     server.start()
-
-    port = str(addr).split(':')
-    logger.info(f'Relations service started on port {port[1]}')
-
     server.wait_for_termination()

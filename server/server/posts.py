@@ -10,6 +10,7 @@ from protos.models_pb2 import Post, UserPosts
 from protos.posts_pb2 import PostResponse, GetPostsResponse, RepostResponse, GetPostsIdResponse, GetPostResponse
 from protos.posts_pb2_grpc import PostServiceServicer, add_PostServiceServicer_to_server
 from server.server.chord.node import ChordNode
+from server.server.security import get_tls_config
 
 logger = logging.getLogger('socialnet.server.posts')
 
@@ -201,10 +202,13 @@ def start_post_service(addr, post_repo: PostRepository, auth_repo: AuthRepositor
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     add_PostServiceServicer_to_server(PostService(post_repo, auth_repo), server)
     
-    server.add_insecure_port(addr)
-    server.start()
-
-    port = str(addr).split(':')
-    logger.info(f'Post service started on port {port[1]}')
+    credentials = get_tls_config().load_credentials()
+    if credentials:
+        server.add_secure_port(addr, credentials)
+        logger.info(f'Post service started on secure port {addr}')
+    else:
+        server.add_insecure_port(addr)
+        logger.warning(f'Post service started on insecure port {addr}')
     
+    server.start()
     server.wait_for_termination()
