@@ -54,7 +54,6 @@ class Storage:
         return int(time.time() * 1000)
 
     def get_version(self, key: str) -> int:
-        key = base_key_from_meta(key)
         with self.lock:
             raw = self.data.get(meta_ver_key(key))
 
@@ -64,7 +63,6 @@ class Storage:
             return 0
         
     def get_deleted_version(self, key: str) -> int:
-        key = base_key_from_meta(key)
         with self.lock:
             raw = self.data.get(meta_del_key(key))
 
@@ -74,7 +72,6 @@ class Storage:
             return 0
 
     def put(self, key, value, version = None):
-        key = base_key_from_meta(key)
         if version is None:
             version = self._now_version()
 
@@ -90,7 +87,6 @@ class Storage:
             return self.data.get(key)
 
     def delete(self, key, version = None):
-        key = base_key_from_meta(key)
         if version is None:
             version = self._now_version()
         
@@ -103,7 +99,6 @@ class Storage:
             self._save()
 
     def purge(self, key):
-        key = base_key_from_meta(key)
         with self.lock:
             self.data.pop(key, None)
             self.data.pop(meta_ver_key(key), None)
