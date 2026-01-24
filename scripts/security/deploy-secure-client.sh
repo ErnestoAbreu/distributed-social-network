@@ -3,22 +3,30 @@
 # Script para generar certificado y desplegar cliente con TLS
 
 CLIENT_NAME=$1
+PORT=$2
 
 # Validar que se proporcione el nombre del cliente
 if [ -z "$CLIENT_NAME" ]; then
     echo "Error: Debe proporcionar el nombre del cliente como argumento"
-    echo "Uso: $0 <nombre_del_cliente>"
-    echo "Ejemplo: $0 client1"
+    echo "Uso: $0 <nombre_del_cliente> <puerto>"
+    echo "Ejemplo: $0 client1 8501"
+    exit 1
+fi
+
+if [ -z "$PORT" ]; then
+    echo "Error: Debe proporcionar el puerto para el cliente como segundo argumento"
+    echo "Uso: $0 <nombre_del_cliente> <puerto>"
+    echo "Ejemplo: $0 client1 8501"
     exit 1
 fi
 
 CERT_DIR="./certs"
-mkdir -p $CERT_DIR
 
-# Generar la CA si no existe
+# Validar que existan los certificados de la CA
 if [ ! -f "$CERT_DIR/ca.crt" ] || [ ! -f "$CERT_DIR/ca.key" ]; then
-    echo "CA no encontrada, generando..."
-    ./scripts/gen-ca.sh
+    echo "Error: Los certificados de la CA no existen en $CERT_DIR"
+    echo "Por favor, genere primero la CA ejecutando el script de CA"
+    exit 1
 fi
 
 echo "--- 1. Generando Certificado para el Cliente: $CLIENT_NAME ---"
@@ -52,6 +60,7 @@ docker run -d \
   --hostname $CLIENT_NAME \
   --network social-network \
   --network-alias socialnet_client \
+  -p $PORT:8501 \
   -v $(pwd)/$CERT_DIR:/etc/grpc/certs:ro \
   -e SSL_CERT_PATH=/etc/grpc/certs/client.crt \
   -e SSL_KEY_PATH=/etc/grpc/certs/client.key \

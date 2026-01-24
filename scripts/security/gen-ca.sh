@@ -1,10 +1,8 @@
 #!/bin/bash
 
 # Script para generar la Autoridad de Certificación (CA)
-# Este script es compartido por servidores y clientes
 
-CERT_DIR="${1:-.}"
-CERT_DIR="$CERT_DIR/certs"
+CERT_DIR="$./certs"
 
 # Crear directorio si no existe
 mkdir -p "$CERT_DIR"
