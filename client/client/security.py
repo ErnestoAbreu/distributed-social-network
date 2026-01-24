@@ -1,5 +1,6 @@
 import os
 import logging
+import threading
 import grpc
 
 logger = logging.getLogger('socialnet.tls_config')
@@ -50,12 +51,14 @@ class TLSConfig:
 
 
 _config = None
+lock = threading.lock
 
 def get_tls_config():
     global _config
-    if _config is None:
-        _config = TLSConfig()
-    return _config
+    with lock:
+        if _config is None:
+            _config = TLSConfig(os.getenv("CA_CERT_PATH"), os.getenv("SSL_CERT_PATH") , os.getenv("SSL_KEY_PATH"))
+        return _config
 
 
 def secure_channel(host: str, options=None) -> grpc.Channel:
