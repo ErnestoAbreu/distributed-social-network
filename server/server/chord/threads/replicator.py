@@ -1,10 +1,10 @@
 import logging
 import time
 import threading
-import grpc
 
 from typing import Dict, Tuple, Optional
 
+from server.server.security import create_channel
 from server.server.chord.protos.chord_pb2 import Empty, KeyValue, Key, ID, Partition
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
 from server.server.chord.utils.config import TIMEOUT, REPLICATION_K, REPLICATION_INTERVAL, M_BITS
@@ -33,7 +33,7 @@ class Replicator(threading.Thread):
         if not node or not node.address:
             return None, False
             
-        channel = grpc.insecure_channel(node.address)
+        channel = create_channel(node.address)
         try:
             stub = ChordServiceStub(channel)
             resp = stub.Get(Key(key=key), timeout=TIMEOUT)
@@ -56,7 +56,7 @@ class Replicator(threading.Thread):
             return 0, True
 
     def _replicate_put(self, node, key: str, value: str):
-        channel = grpc.insecure_channel(node.address)
+        channel = create_channel(node.address)
         try:
             stub = ChordServiceStub(channel)
             stub.Put(KeyValue(key=key, value=value), timeout=TIMEOUT)
@@ -64,7 +64,7 @@ class Replicator(threading.Thread):
             channel.close()
 
     def _replicate_delete(self, node, key: str):
-        channel = grpc.insecure_channel(node.address)
+        channel = create_channel(node.address)
         try:
             stub = ChordServiceStub(channel)
             stub.Delete(Key(key=key), timeout=TIMEOUT)
@@ -74,7 +74,7 @@ class Replicator(threading.Thread):
     # ---------------- Partition RPC helpers ----------------
 
     def _remote_set_partition(self, node, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> bool:
-        channel = grpc.insecure_channel(node.address)
+        channel = create_channel(node.address)
         try:
             stub = ChordServiceStub(channel)
             resp = stub.SetPartition(Partition(values=values, versions=versions, removed=removed), timeout=TIMEOUT)
@@ -83,7 +83,7 @@ class Replicator(threading.Thread):
             channel.close()
 
     def _remote_resolve_data(self, node, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> Tuple[bool, Dict[str, str], Dict[str, int], Dict[str, int]]:
-        channel = grpc.insecure_channel(node.address)
+        channel = create_channel(node.address)
         try:
             stub = ChordServiceStub(channel)
             resp = stub.ResolveData(Partition(values=values, versions=versions, removed=removed), timeout=TIMEOUT)
@@ -129,7 +129,7 @@ class Replicator(threading.Thread):
                 if not current or current.address == self.node.address:
                     break
 
-                channel = grpc.insecure_channel(current.address)
+                channel = create_channel(current.address)
                 try:
                     stub = ChordServiceStub(channel)
                     next_node = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
@@ -162,7 +162,7 @@ class Replicator(threading.Thread):
         if not node or not node.address:
             return False
         try:
-            channel = grpc.insecure_channel(node.address)
+            channel = create_channel(node.address)
             try:
                 stub = ChordServiceStub(channel)
                 stub.Ping(Empty(), timeout=TIMEOUT)
@@ -352,7 +352,7 @@ class Replicator(threading.Thread):
             # Check if we're within the first K successors of the responsible node
             # (i.e., we're one of the replica holders)
             try:
-                channel = grpc.insecure_channel(responsible_node.address)
+                channel = create_channel(responsible_node.address)
                 try:
                     stub = ChordServiceStub(channel)
                     
@@ -389,7 +389,7 @@ class Replicator(threading.Thread):
         
         for successor in successors:
             try:
-                channel = grpc.insecure_channel(successor.address)
+                channel = create_channel(successor.address)
                 try:
                     stub = ChordServiceStub(channel)
                     response = stub.GetAllKeys(Empty(), timeout=TIMEOUT)
@@ -573,7 +573,7 @@ class Replicator(threading.Thread):
             if not succ or succ.address == self.node.address:
                 continue
             try:
-                channel = grpc.insecure_channel(succ.address)
+                channel = create_channel(succ.address)
                 try:
                     stub = ChordServiceStub(channel)
                     pred = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
@@ -593,7 +593,7 @@ class Replicator(threading.Thread):
         
         for node_addr in nodes_to_fetch:
             try:
-                channel = grpc.insecure_channel(node_addr)
+                channel = create_channel(node_addr)
                 try:
                     stub = ChordServiceStub(channel)
                     response = stub.GetAllKeys(Empty(), timeout=TIMEOUT)
@@ -661,7 +661,7 @@ class Replicator(threading.Thread):
                 else:
                     # Check if we're in the first K successors (replica holder)
                     try:
-                        channel = grpc.insecure_channel(responsible.address)
+                        channel = create_channel(responsible.address)
                         try:
                             stub = ChordServiceStub(channel)
                             current = responsible

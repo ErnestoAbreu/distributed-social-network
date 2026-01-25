@@ -86,8 +86,7 @@ def create_channel(host: str, options=None) -> grpc.Channel:
         return grpc.secure_channel(host, credentials, options=options)
 
     logger.warning(f'TLS enabled but credentials failed to load, using insecure channel to {host}')
-    channel = grpc.insecure_channel(host, options=options)
-    return channel
+    return grpc.insecure_channel(host, options=options)
 
 
 def generate_certificate(ca_cert_path, ca_key_path, client_ip=None):

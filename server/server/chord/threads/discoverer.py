@@ -2,15 +2,15 @@ import logging
 import os
 import socket
 import time
-import grpc
 import threading
 
+from server.server.security import create_channel
 from server.server.chord.utils.utils import is_in_interval
 from server.server.chord.utils.config import TIMEOUT, DISCOVERY_INTERVAL
-from server.server.chord.utils.cache import load_node_cache, save_node_cache, add_to_node_cache
+from server.server.chord.utils.cache import load_node_cache, add_to_node_cache
 from server.server.config import DEFAULT_PORT
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
-from server.server.chord.protos.chord_pb2 import Empty, ID, NodeInfo
+from server.server.chord.protos.chord_pb2 import Empty, NodeInfo
 
 logger = logging.getLogger('socialnet.server.chord.threads.discoverer')
 
@@ -97,7 +97,7 @@ class Discoverer(threading.Thread):
             
             # Query successor's predecessor to check for a better successor
             try:
-                channel = grpc.insecure_channel(successor.address, options=[('grpc.keepalive_time_ms', 5000)])
+                channel = create_channel(successor.address, options=[('grpc.keepalive_time_ms', 5000)])
                 try:
                     stub = ChordServiceStub(channel)
                     middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
@@ -121,7 +121,7 @@ class Discoverer(threading.Thread):
                     current_successor = self.node.finger[0]
                 
                 if current_successor and current_successor.address != self.node.address:
-                    channel = grpc.insecure_channel(current_successor.address, options=[('grpc.keepalive_time_ms', 5000)])
+                    channel = create_channel(current_successor.address, options=[('grpc.keepalive_time_ms', 5000)])
                     try:
                         stub = ChordServiceStub(channel)
                         # Request successor to check its predecessor (which should be us or closer to us)
@@ -196,7 +196,7 @@ class Discoverer(threading.Thread):
                 self.logger.info(f'Attempting to join ring via {candidate_addr}...')
                 
                 # Test if node is reachable
-                channel = grpc.insecure_channel(candidate_addr)
+                channel = create_channel(candidate_addr)
                 stub = ChordServiceStub(channel)
                 stub.Ping(Empty(), timeout=TIMEOUT)
                 channel.close()

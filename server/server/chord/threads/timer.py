@@ -8,6 +8,7 @@ import grpc
 from server.server.chord.protos.chord_pb2 import Empty, NodeInfo
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
 from server.server.chord.utils.config import TIMEOUT, M_BITS, TIMER_INTERVAL, EVENT_TIME
+from server.server.security import create_channel
 
 
 class Timer(threading.Thread):
@@ -103,7 +104,7 @@ class Timer(threading.Thread):
             return None
         
         try:
-            channel = grpc.insecure_channel(node.address)
+            channel = create_channel(node.address)
             try:
                 stub = ChordServiceStub(channel)
                 response = stub.GetTime(Empty(), timeout=TIMEOUT)

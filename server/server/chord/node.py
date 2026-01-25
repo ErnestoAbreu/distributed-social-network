@@ -6,12 +6,14 @@ import threading
 from concurrent import futures
 from typing import Optional
 
+from client.client.config import USE_TLS
 from server.server.chord.threads.stabilize import Stabilizer
 from server.server.chord.threads.replicator import Replicator
 from server.server.chord.threads.discoverer import Discoverer
 from server.server.chord.threads.timer import Timer
 from server.server.chord.threads.elector import Elector
 from server.server.chord.utils.utils import is_in_interval
+from server.server.security import create_channel, get_tls_config
 
 from .protos.chord_pb2 import ID, Key, NodeInfo, Empty, Value, KeyValue, KeyValueList, Partition, Ack, PartitionResult, TimeStamp
 from .protos.chord_pb2_grpc import ChordServiceServicer, ChordServiceStub, add_ChordServiceServicer_to_server
@@ -220,7 +222,7 @@ class ChordNode(ChordServiceServicer):
         if known_node:
             logger.info(f"Joining Chord ring via node {known_node.address}")
 
-            channel = grpc.insecure_channel(known_node.address)
+            channel = create_channel(known_node.address)
             successor = None
             try:
                 stub = ChordServiceStub(channel)
@@ -266,7 +268,7 @@ class ChordNode(ChordServiceServicer):
         
         # Remote call to find successor
         try:
-            channel = grpc.insecure_channel(n0.address)
+            channel = create_channel(n0.address)
             try:
                 stub = ChordServiceStub(channel)
                 result: NodeInfo = stub.FindSuccessor(ID(id=key), timeout=TIMEOUT_FIND_SUCCESSOR)
@@ -308,7 +310,18 @@ class ChordNode(ChordServiceServicer):
 
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         add_ChordServiceServicer_to_server(self, server)
-        server.add_insecure_port(self.address)
+        
+        if not USE_TLS:
+            server.add_insecure_port(self.address)
+            logger.info(f'Chord service started on insecure port {self.address} (TLS disabled)')
+        else:
+            credentials = get_tls_config().load_server_credentials()
+            if credentials:
+                server.add_secure_port(self.address, credentials)
+                logger.info(f'Chord service started on secure port {self.address} with mTLS')
+            else:
+                server.add_insecure_port(self.address)
+                logger.warning(f'Chord service started on insecure port {self.address} (TLS credentials failed)')
 
         # Start maintenance threads
         Stabilizer(self, STABILIZE_INTERVAL).start()

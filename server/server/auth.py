@@ -11,6 +11,7 @@ from protos.models_pb2 import User
 from protos.auth_pb2 import RegisterResponse, LoginResponse
 from protos.auth_pb2_grpc import AuthServiceServicer, add_AuthServiceServicer_to_server
 from server.server.chord.core import exists, load, save
+from server.server.config import USE_TLS
 from server.server.security import get_tls_config
 
 logger = logging.getLogger('socialnet.server.auth')
@@ -119,8 +120,6 @@ class AuthService(AuthServiceServicer):
 
 
 def start_auth_service(addr, auth_repo: AuthRepository, max_workers: int = 10):
-    from server.server.config import USE_TLS
-    
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
 
     SECRET_KEY = os.getenv("SECRET_KEY", 'dev_secret_123')

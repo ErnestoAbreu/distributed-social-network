@@ -2,6 +2,7 @@ import grpc
 import logging
 
 from server.server.chord.node import ChordNode
+from server.server.security import create_channel
 from .utils.hashing import hash_key
 from .utils.config import M_BITS, TIMEOUT, TIMEOUT_LOAD, TIMEOUT_SAVE, TIMEOUT_EXISTS, TIMEOUT_DELETE
 from .protos.chord_pb2 import Key, KeyValue, NodeInfo
@@ -30,7 +31,7 @@ def exists(node: ChordNode, key: str) -> tuple[bool, grpc.StatusCode | None]:
         if responsible_node.address == node.address:
             return node.storage.exists(key), None
 
-        channel = grpc.insecure_channel(responsible_node.address)
+        channel = create_channel(responsible_node.address)
         stub = ChordServiceStub(channel)
         
         response = stub.Get(Key(key=key), timeout=TIMEOUT_EXISTS)
@@ -76,7 +77,7 @@ def load(node: ChordNode, key: str, prototype) -> tuple[object, grpc.StatusCode 
                 logger.error(f"Failed to parse protobuf for key {key}: {e}")
                 return None, grpc.StatusCode.INTERNAL
         
-        channel = grpc.insecure_channel(responsible_node.address)
+        channel = create_channel(responsible_node.address)
         stub = ChordServiceStub(channel)
         
         try:
@@ -141,7 +142,7 @@ def save(node: ChordNode, key: str, prototype: object) -> grpc.StatusCode | None
             node.storage.put(key, serialized_value, node.now_version())
             return None
         
-        channel = grpc.insecure_channel(responsible_node.address)
+        channel = create_channel(responsible_node.address)
         stub = ChordServiceStub(channel)
         
         try:
@@ -185,7 +186,7 @@ def delete(node: ChordNode, key: str) -> grpc.StatusCode | None:
             node.storage.delete(key, node.now_version())
             return None
         
-        channel = grpc.insecure_channel(responsible_node.address)
+        channel = create_channel(responsible_node.address)
         stub = ChordServiceStub(channel)
         
         try:

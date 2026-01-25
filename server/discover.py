@@ -9,6 +9,7 @@ from server.server.chord.utils.config import TIMEOUT
 from server.server.config import DEFAULT_PORT
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
 from server.server.chord.protos.chord_pb2 import Empty, ID, NodeInfo
+from server.server.security import create_channel
 
 logger = logging.getLogger('socialnet.server.discover')
 
@@ -41,7 +42,7 @@ def join_ring(node: ChordNode, candidate_nodes: list[str]) -> bool:
             logger.info(f'Attempting to join ring via {candidate_addr}...')
             
             # Test if node is reachable
-            channel = grpc.insecure_channel(candidate_addr)
+            channel = create_channel(candidate_addr)
             stub = ChordServiceStub(channel)
             stub.Ping(Empty(), timeout=TIMEOUT)
             channel.close()

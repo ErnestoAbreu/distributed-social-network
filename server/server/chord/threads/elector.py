@@ -8,6 +8,7 @@ import grpc
 from server.server.chord.protos.chord_pb2 import Empty, NodeInfo, ID
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
 from server.server.chord.utils.config import TIMEOUT, M_BITS
+from server.server.security import create_channel
 
 
 class Elector(threading.Thread):
@@ -65,7 +66,7 @@ class Elector(threading.Thread):
             return
 
         try:
-            channel = grpc.insecure_channel(self.current_leader.address)
+            channel = create_channel(self.current_leader.address)
             try:
                 stub = ChordServiceStub(channel)
                 stub.Ping(Empty(), timeout=TIMEOUT)
@@ -121,7 +122,7 @@ class Elector(threading.Thread):
 
                 # Contact the node
                 try:
-                    channel = grpc.insecure_channel(current.address)
+                    channel = create_channel(current.address)
                     try:
                         stub = ChordServiceStub(channel)
                         stub.Ping(Empty(), timeout=TIMEOUT)
@@ -138,7 +139,7 @@ class Elector(threading.Thread):
 
                 # Move to next node
                 try:
-                    channel = grpc.insecure_channel(current.address)
+                    channel = create_channel(current.address)
                     try:
                         stub = ChordServiceStub(channel)
                         # Get successor of current node
@@ -218,7 +219,7 @@ class Elector(threading.Thread):
             return time_val
 
         try:
-            channel = grpc.insecure_channel(self.current_leader.address)
+            channel = create_channel(self.current_leader.address)
             try:
                 stub = ChordServiceStub(channel)
                 stub.Ping(Empty(), timeout=TIMEOUT)

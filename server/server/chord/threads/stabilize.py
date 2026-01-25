@@ -2,8 +2,7 @@ import logging
 import time
 import threading
 
-import grpc
-
+from server.server.security import create_channel
 from server.server.chord.protos.chord_pb2 import Empty, NodeInfo
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
 from server.server.chord.utils.config import TIMEOUT, M_BITS
@@ -42,7 +41,7 @@ class Stabilizer(threading.Thread):
         if not node or not node.address:
             return False
         try:
-            channel = grpc.insecure_channel(node.address)
+            channel = create_channel(node.address)
             try:
                 stub = ChordServiceStub(channel)
                 stub.Ping(Empty(), timeout=TIMEOUT)
@@ -81,7 +80,7 @@ class Stabilizer(threading.Thread):
         
          # Try getting successor's predecessor
         try:
-            channel = grpc.insecure_channel(successor.address)
+            channel = create_channel(successor.address)
             try:
                 stub = ChordServiceStub(channel)
                 middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
@@ -117,7 +116,7 @@ class Stabilizer(threading.Thread):
             return
         
         try:
-            channel = grpc.insecure_channel(successor.address)
+            channel = create_channel(successor.address)
             try:
                 stub = ChordServiceStub(channel)
                 stub.UpdatePredecessor(NodeInfo(id=self.node.id, address=self.node.address), timeout=TIMEOUT)
