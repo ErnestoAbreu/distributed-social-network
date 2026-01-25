@@ -208,7 +208,7 @@ def start_post_service(addr, post_repo: PostRepository, auth_repo: AuthRepositor
         server.add_insecure_port(addr)
         logger.info(f'Post service started on insecure port {addr} (TLS disabled)')
     else:
-        credentials = get_tls_config().load_credentials()
+        credentials = get_tls_config().load_server_credentials()
         if credentials:
             server.add_secure_port(addr, credentials)
             logger.info(f'Post service started on secure port {addr} with mTLS')

@@ -1,52 +1,77 @@
 import os
+import socket
+import ipaddress
 import logging
 import threading
 import grpc
+from datetime import datetime, timedelta
+from cryptography import x509
+from cryptography.x509.oid import NameOID, ExtensionOID
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
 from server.server.config import USE_TLS
 
 logger = logging.getLogger('socialnet.tls_config')
 
 
 class TLSConfig:
-    def __init__(self, 
-                 ca_cert_path='certs/ca.crt',
-                 server_cert_path='certs/server.crt',
-                 server_key_path='certs/server.key'):
+    def __init__(self, ca_cert_path='certs/ca.crt', ca_key_path='certs/ca.key'):
         self.ca_cert_path = ca_cert_path
-        self.server_cert_path = server_cert_path
-        self.server_key_path = server_key_path
-        self._verify_certificates()
-
-        self.lock = threading.Lock()
+        self.ca_key_path = ca_key_path
+        self._generate_certificate()
     
-    def _verify_certificates(self):
-        """Check if the certificate files exist."""
-        paths = {
-            'CA': self.ca_cert_path,
-            'Server Cert': self.server_cert_path,
-            'Server Key': self.server_key_path,
-        }
-        for name, path in paths.items():
-            if not os.path.exists(path):
-                logger.warning(f'{name} not found at {path}')
-    
-    
-    def load_credentials(self) -> grpc.ChannelCredentials:
-        """Load server credentials for mTLS."""
+    def _generate_certificate(self):
+        """Generate server certificate if CA is available."""
         try:
+            if os.path.exists(self.ca_cert_path) and os.path.exists(self.ca_key_path):
+                cert_pem, key_pem = generate_certificate(
+                    self.ca_cert_path, 
+                    self.ca_key_path
+                )
+                
+                # Store in memory
+                self._cert = cert_pem
+                self._key = key_pem
+            else:
+                logger.warning(f'CA not found at {self.ca_cert_path}, cannot generate runtime certificate')
+                self._cert = None
+                self._key = None
+        except Exception as e:
+            logger.error(f'Failed to generate runtime certificate: {e}')
+            self._cert = None
+            self._key = None
+    
+    def load_client_credentials(self) -> grpc.ChannelCredentials:
+        """Load client credentials for mTLS."""
+        try:
+            # Load CA certificate
             with open(self.ca_cert_path, 'rb') as f:
                 root_certs = f.read()
-            with open(self.server_cert_path, 'rb') as f:
-                server_cert = f.read()
-            with open(self.server_key_path, 'rb') as f:
-                server_key = f.read()
+            
+            credentials = grpc.ssl_channel_credentials(
+                root_certificates=root_certs,
+                private_key=self._key,
+                certificate_chain=self._cert
+            )
+            return credentials
+        except Exception as e:
+            logger.error(f'Error in client credentials: {e}')
+            return None
+    
+    def load_server_credentials(self) -> grpc.ChannelCredentials:
+        """Load server credentials for mTLS."""
+        try:
+            # Load CA certificate
+            with open(self.ca_cert_path, 'rb') as f:
+                root_certs = f.read()
             
             credentials = grpc.ssl_server_credentials(
-                [(server_key, server_cert)],
+                [(self._key, self._cert)],
                 root_certificates=root_certs,
                 require_client_auth=True
             )
-            logger.info('Server credentials with mTLS')
+            logger.info('Server credentials with mTLS loaded successfully')
             return credentials
         except Exception as e:
             logger.error(f'Error in server credentials: {e}')
@@ -60,32 +85,128 @@ def get_tls_config():
     global _config
     with lock:
         if _config is None:
-            _config = TLSConfig(os.getenv("CA_CERT_PATH"), os.getenv("SSL_CERT_PATH") , os.getenv("SSL_KEY_PATH"))
+            ca_cert_path = os.getenv("CA_CERT_PATH", "certs/ca.crt")
+            ca_key_path = os.getenv("CA_KEY_PATH", "certs/ca.key")
+            _config = TLSConfig(ca_cert_path, ca_key_path)
         return _config
 
 
 def create_channel(host: str, options=None) -> grpc.Channel:
-    """Create and return a gRPC channel to the specified host.
-    
-    This function respects the USE_TLS configuration and creates either a secure
-    or insecure channel accordingly.
-    
-    Args:
-        host: The target host address in format 'host:port'
-        options: Optional list of gRPC channel options
-        
-    Returns:
-        A gRPC channel (secure or insecure depending on configuration)
-    """
+    """Create and return a gRPC channel to the specified host."""
     if options is None:
         options = []
 
     if not USE_TLS:
         return grpc.insecure_channel(host, options=options)
 
-    credentials = get_tls_config().load_credentials()
+    credentials = get_tls_config().load_client_credentials()
     if credentials:
         return grpc.secure_channel(host, credentials, options=options)
     
     logger.warning(f'TLS enabled but credentials failed to load for {host}, using insecure channel')
     return grpc.insecure_channel(host, options=options)
+
+
+def generate_certificate(ca_cert_path, ca_key_path, server_ip=None):
+    try:
+        # Auto-detect IP if not provided
+        if server_ip is None:
+            server_ip = os.getenv('NODE_HOST') or socket.gethostbyname(socket.gethostname())
+        
+        logger.info(f'Generating server certificate for IP: {server_ip}')
+        
+        # Load CA certificate and key
+        with open(ca_cert_path, 'rb') as f:
+            ca_cert_data = f.read()
+            ca_cert = x509.load_pem_x509_certificate(ca_cert_data, default_backend())
+        
+        with open(ca_key_path, 'rb') as f:
+            ca_key_data = f.read()
+            ca_key = serialization.load_pem_private_key(
+                ca_key_data, 
+                password=None, 
+                backend=default_backend()
+            )
+        
+        # Generate private key for server
+        server_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        
+        # Build subject name
+        subject = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, f'socialnet-server-{server_ip}'),
+        ])
+        
+        # Build SAN (Subject Alternative Name) with IP and DNS names
+        san_list = [
+            x509.DNSName('localhost'),
+            x509.DNSName('socialnet_server'),
+        ]
+
+        # Add IP to SAN if valid
+        try:
+            ip_obj = ipaddress.ip_address(server_ip)
+            san_list.append(x509.IPAddress(ip_obj))
+        except ValueError:
+            logger.warning(f'Invalid IP address for SAN: {server_ip}, skipping IP entry')
+        
+        # Create certificate
+        cert_builder = x509.CertificateBuilder()
+        cert_builder = cert_builder.subject_name(subject)
+        cert_builder = cert_builder.issuer_name(ca_cert.subject)
+        cert_builder = cert_builder.public_key(server_key.public_key())
+        cert_builder = cert_builder.serial_number(x509.random_serial_number())
+        cert_builder = cert_builder.not_valid_before(datetime.utcnow())
+        cert_builder = cert_builder.not_valid_after(datetime.utcnow() + timedelta(days=365))
+        
+        # Add extensions
+        cert_builder = cert_builder.add_extension(
+            x509.SubjectAlternativeName(san_list),
+            critical=False
+        )
+        cert_builder = cert_builder.add_extension(
+            x509.BasicConstraints(ca=False, path_length=None),
+            critical=True
+        )
+        cert_builder = cert_builder.add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                key_encipherment=True,
+                content_commitment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=False,
+                crl_sign=False,
+                encipher_only=False,
+                decipher_only=False
+            ),
+            critical=True
+        )
+        cert_builder = cert_builder.add_extension(
+            x509.ExtendedKeyUsage([
+                x509.oid.ExtendedKeyUsageOID.SERVER_AUTH,
+                x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH
+            ]),
+            critical=False
+        )
+        
+        # Sign certificate with CA
+        cert = cert_builder.sign(ca_key, hashes.SHA256(), default_backend())
+        
+        # Serialize certificate and key
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+        key_pem = server_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        logger.info(f'Server certificate generated successfully for {server_ip}')
+        return cert_pem, key_pem
+        
+    except Exception as e:
+        logger.error(f'Error generating server certificate: {e}')
+        raise

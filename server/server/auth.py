@@ -130,7 +130,7 @@ def start_auth_service(addr, auth_repo: AuthRepository, max_workers: int = 10):
         server.add_insecure_port(addr)
         logger.info(f'Auth service started on insecure port {addr} (TLS disabled)')
     else:
-        credentials = get_tls_config().load_credentials()
+        credentials = get_tls_config().load_server_credentials()
         if credentials:
             server.add_secure_port(addr, credentials)
             logger.info(f'Auth service started on secure port {addr} with mTLS')

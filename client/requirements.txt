@@ -4,3 +4,4 @@ protobuf>=5.26.1
 grpcio>=1.62.0
 grpcio-tools>=1.62.0
 streamlit-cookies-manager
+cryptography>=42.0.0
