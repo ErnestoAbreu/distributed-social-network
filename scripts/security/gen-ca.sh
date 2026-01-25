@@ -15,7 +15,7 @@ fi
 
 echo "--- Generando Autoridad de Certificación (CA) ---"
 openssl genrsa -out "$CERT_DIR/ca.key" 2048
-openssl req -x509 -new -nodes -key "$CERT_DIR/ca.key" -subj "/CN=MyGRPCA" -days 3650 -out "$CERT_DIR/ca.crt"
+openssl req -x509 -new -nodes -key "$CERT_DIR/ca.key" -subj "/CN=SocialNet" -days 3650 -out "$CERT_DIR/ca.crt"
 
 echo "CA generada exitosamente"
 echo "ca.key: $CERT_DIR/ca.key"
