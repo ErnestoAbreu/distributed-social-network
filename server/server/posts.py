@@ -199,16 +199,22 @@ class PostService(PostServiceServicer):
 
 
 def start_post_service(addr, post_repo: PostRepository, auth_repo: AuthRepository, max_workers: int = 10):
+    from server.server.config import USE_TLS
+    
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     add_PostServiceServicer_to_server(PostService(post_repo, auth_repo), server)
     
-    credentials = get_tls_config().load_credentials()
-    if credentials:
-        server.add_secure_port(addr, credentials)
-        logger.info(f'Post service started on secure port {addr}')
-    else:
+    if not USE_TLS:
         server.add_insecure_port(addr)
-        logger.warning(f'Post service started on insecure port {addr}')
+        logger.info(f'Post service started on insecure port {addr} (TLS disabled)')
+    else:
+        credentials = get_tls_config().load_credentials()
+        if credentials:
+            server.add_secure_port(addr, credentials)
+            logger.info(f'Post service started on secure port {addr} with mTLS')
+        else:
+            server.add_insecure_port(addr)
+            logger.warning(f'Post service started on insecure port {addr} (TLS credentials failed)')
     
     server.start()
     server.wait_for_termination()

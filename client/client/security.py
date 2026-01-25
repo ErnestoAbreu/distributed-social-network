@@ -2,6 +2,7 @@ import os
 import logging
 import threading
 import grpc
+from client.client.config import USE_TLS
 
 logger = logging.getLogger('socialnet.tls_config')
 
@@ -61,15 +62,21 @@ def get_tls_config():
         return _config
 
 
-def secure_channel(host: str, options=None) -> grpc.Channel:
+def create_channel(host: str, options=None) -> grpc.Channel:
     """Create and return a gRPC channel to the specified host."""
     if options is None:
         options = []
 
+    if not USE_TLS:
+        logger.info(f'Creating insecure channel to {host} (TLS disabled)')
+        return grpc.insecure_channel(host, options=options)
+
     credentials = get_tls_config().load_credentials()
     if credentials:
+        logger.info(f'Creating secure channel to {host} with mTLS')
         channel = grpc.secure_channel(host, credentials, options=options)
         return channel
     
+    logger.warning(f'TLS enabled but credentials failed to load, using insecure channel to {host}')
     channel = grpc.insecure_channel(host, options=options)
     return channel

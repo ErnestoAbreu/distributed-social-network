@@ -1,3 +1,5 @@
+import os
+
 class NoServersAvailableError(ConnectionError):
     """Raised when the client cannot find any alive server to contact."""
 
@@ -7,6 +9,9 @@ NO_SERVERS_AVAILABLE_MESSAGE = 'No servers are available right now. Please try a
 # Cache configuration
 SERVER_CACHE_KEY = 'discovered_servers'
 MAX_CACHE_AGE = 3600  # 1 hour in seconds
+
+# TLS configuration
+USE_TLS = os.getenv('USE_TLS', 'false').lower() in ('true', '1', 'yes')
 
 # Service ports
 AUTH = 50000

@@ -119,18 +119,24 @@ class AuthService(AuthServiceServicer):
 
 
 def start_auth_service(addr, auth_repo: AuthRepository, max_workers: int = 10):
+    from server.server.config import USE_TLS
+    
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
 
     SECRET_KEY = os.getenv("SECRET_KEY", 'dev_secret_123')
     add_AuthServiceServicer_to_server(AuthService(auth_repo, SECRET_KEY, 'HS256'), server)
 
-    credentials = get_tls_config().load_credentials()
-    if credentials:
-        server.add_secure_port(addr, credentials)
-        logger.info(f'Auth service started on secure port {addr}')
-    else:
+    if not USE_TLS:
         server.add_insecure_port(addr)
-        logger.warning(f'Auth service started on insecure port {addr}')
+        logger.info(f'Auth service started on insecure port {addr} (TLS disabled)')
+    else:
+        credentials = get_tls_config().load_credentials()
+        if credentials:
+            server.add_secure_port(addr, credentials)
+            logger.info(f'Auth service started on secure port {addr} with mTLS')
+        else:
+            server.add_insecure_port(addr)
+            logger.warning(f'Auth service started on insecure port {addr} (TLS credentials failed)')
     
     server.start()
     server.wait_for_termination()
