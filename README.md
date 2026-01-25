@@ -15,16 +15,19 @@ docker network create --driver overlay --attachable social-network
 
 Es crucial que el punto final del comando sea el punto `.` (directorio actual) para enviar todo el contexto de archivos.
 
+##### Construir imagen del Servidor
 ```bash
-# Construir imagen del Servidor
 docker build -f Dockerfile.server -t social-server:latest .
+```
 
-# Construir imagen del Cliente
+##### Construir imagen del Cliente
+```bash
 docker build -f Dockerfile.client -t social-client:latest .
+```
 
-# Construir imagen del Router
+##### Construir imagen del Router
+```bash
 docker build -f Dockerfile.router -t social-router:latest .
-
 ```
 
 #### Paso C: Desplegar el Anillo de Servidores (Backend)

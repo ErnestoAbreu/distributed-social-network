@@ -31,12 +31,13 @@ distinguished_name = req_distinguished_name
 req_extensions = v3_req
 prompt = no
 [req_distinguished_name]
-CN = $NODE_NAME
+CN = socialnet_server
 [v3_req]
 subjectAltName = @alt_names
 [alt_names]
-DNS.1 = $NODE_NAME
-DNS.2 = localhost
+DNS.1 = socialnet_server
+DNS.2 = $NODE_NAME
+DNS.3 = localhost
 EOF
 
 # Crear solicitud de firma (CSR)

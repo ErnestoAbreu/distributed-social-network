@@ -2,7 +2,7 @@
 
 # Script para generar la Autoridad de Certificación (CA)
 
-CERT_DIR="$./certs"
+CERT_DIR="./certs"
 
 # Crear directorio si no existe
 mkdir -p "$CERT_DIR"

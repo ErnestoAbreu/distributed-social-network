@@ -39,12 +39,13 @@ distinguished_name = req_distinguished_name
 req_extensions = v3_req
 prompt = no
 [req_distinguished_name]
-CN = $CLIENT_NAME
+CN = socialnet_client
 [v3_req]
 subjectAltName = @alt_names
 [alt_names]
-DNS.1 = $CLIENT_NAME
-DNS.2 = localhost
+DNS.1 = socialnet_client
+DNS.2 = $CLIENT_NAME
+DNS.3 = localhost
 EOF
 
 # Crear solicitud de firma (CSR)
@@ -55,13 +56,24 @@ openssl x509 -req -in $CERT_DIR/client.csr -CA $CERT_DIR/ca.crt -CAkey $CERT_DIR
 -CAcreateserial -out $CERT_DIR/client.crt -days 365 -extensions v3_req -extfile $CERT_DIR/client.conf
 
 echo "--- 2. Desplegando Cliente en Docker ---"
-docker run -d \
+# docker run -d \
+#   --name $CLIENT_NAME \
+#   --hostname $CLIENT_NAME \
+#   --network social-network \
+#   --network-alias socialnet_client \
+#   -p $PORT:8501 \
+#   -v $(pwd)/$CERT_DIR:/etc/grpc/certs:ro \
+#   -e SSL_CERT_PATH=/etc/grpc/certs/client.crt \
+#   -e SSL_KEY_PATH=/etc/grpc/certs/client.key \
+#   -e CA_CERT_PATH=/etc/grpc/certs/ca.crt \
+#   social-client:latest
+
+docker service create -d \
   --name $CLIENT_NAME \
   --hostname $CLIENT_NAME \
   --network social-network \
-  --network-alias socialnet_client \
   -p $PORT:8501 \
-  -v $(pwd)/$CERT_DIR:/etc/grpc/certs:ro \
+  --mount type=bind,source=$(pwd)/$CERT_DIR,target=/etc/grpc/certs,readonly \
   -e SSL_CERT_PATH=/etc/grpc/certs/client.crt \
   -e SSL_KEY_PATH=/etc/grpc/certs/client.key \
   -e CA_CERT_PATH=/etc/grpc/certs/ca.crt \

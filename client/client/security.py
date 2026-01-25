@@ -51,7 +51,7 @@ class TLSConfig:
 
 
 _config = None
-lock = threading.lock
+lock = threading.Lock()
 
 def get_tls_config():
     global _config
