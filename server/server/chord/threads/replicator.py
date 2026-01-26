@@ -167,7 +167,7 @@ class Replicator(threading.Thread):
     def replicate_data(self):
         """Replica local data + tombstones to successor nodes (LWW by version)"""
         # Get exactly REPLICATION_K alive successors (excluding self)
-        alive_successors = self.get_successor_list(REPLICATION_K, alive_only=True)
+        alive_successors = self.get_successor_list(REPLICATION_K)
 
         if not alive_successors:
             self.logger.debug("No alive successors available for replication")
@@ -286,6 +286,9 @@ class Replicator(threading.Thread):
 
     def resolve_replicas(self):
         """Check and resolve replicas for consistency"""
+        
+        self.logger.info("Resolving replicas for consistency")
+
         items = self.node.storage.base_items()
         keys_to_transfer = []
         for key in items.keys():
@@ -305,7 +308,7 @@ class Replicator(threading.Thread):
                         keys_to_transfer.append((key, responsible_node))
 
             except Exception as e:
-                self.logger.error(f"Failed to resolve replica for key {key}: {e}")
+                self.logger.debug(f"Failed to resolve replica for key {key}: {e}")
 
         # Transfer keys that don't belong to us
         for key, target_node in keys_to_transfer:
@@ -325,13 +328,14 @@ class Replicator(threading.Thread):
                 if local_del > 0:
                     self._replicate_put(target_node, meta_del_key(key), str(local_del))
                     
-                # Only purge after successful transfer
-                self.node.storage.purge(key)
-                self.logger.info(f"Transferred key {key} to {target_node.address}")
+                # Keep local replica even after transferring to responsible node.
+                self.logger.info(f"Transferred key {key} to {target_node.address} (local replica retained)")
             except Exception as e:
-                self.logger.error(f"Failed to transfer key {key} to {target_node.address}: {e}")
+                self.logger.warning(f"Failed to transfer key {key} to {target_node.address}: {e}")
                 # Don't purge on failure - keep the key
-    
+
+        self.logger.info("Replica resolution completed")
+
     def _should_keep_replica(self, key_hash):
         """Determine if this node should keep the replica for the given key hash"""
         try:
@@ -351,7 +355,7 @@ class Replicator(threading.Thread):
                     
                     # Get successors of the responsible node
                     current = responsible_node
-                    for _ in range(REPLICATION_K - 1):
+                    for _ in range(REPLICATION_K):
                         next_resp = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
                         if next_resp and next_resp.address == self.node.address:
                             # We're one of the K replicas
@@ -371,8 +375,11 @@ class Replicator(threading.Thread):
 
     def fetch_replicas_from_successors(self):
         """Fetch replicas from K successors and merge (LWW)"""
+
+        self.logger.info("Fetching replicas from successors")
+
         # Get alive successors for fetching replicas
-        successors = self.get_successor_list(REPLICATION_K - 1, alive_only=True)
+        successors = self.get_successor_list(REPLICATION_K)
 
         if not successors:
             self.logger.debug("No valid alive successors to fetch replicas from")
@@ -418,12 +425,17 @@ class Replicator(threading.Thread):
                         self.logger.info(f"Successfully fetched+merged replicas from {successor.address}")
 
             except Exception as e:
-                self.logger.error(f"Failed to fetch replicas from {successor.address}: {e}")
+                self.logger.warning(f"Failed to fetch replicas from {successor.address}: {e}")
+
+        self.info("Replica fetching completed")
 
     # ---------------- Partition / resolve (server-side logic) ----------------
 
     def set_partition(self, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> bool:
         """Merge incoming partition with union semantics and LWW on conflicts."""
+        
+        self.logger.info(f"Setting partition with {len(values)} values, {len(versions)} versions, {len(removed)} removed items")
+
         try:
             keys = set(values.keys()) | set(removed.keys()) | set(versions.keys())
 
@@ -454,13 +466,17 @@ class Replicator(threading.Thread):
                 else:
                     self.node.storage.put(key, value, version=ver if ver > 0 else None)
 
+            self.logger.info("Partition set successfully")
             return True
         except Exception as e:
-            self.logger.error(f"set_partition error: {e}")
+            self.logger.warning(f"set_partition error: {e}")
             return False
 
     def resolve_data(self, values: Dict[str, str], versions: Dict[str, int], removed: Dict[str, int]) -> Tuple[Dict[str, str], Dict[str, int], Dict[str, int]]:
         """Resolve conflicts against our local storage and return what the caller should keep."""
+        
+        self.logger.info(f"Resolving data with {len(values)} values, {len(versions)} versions, {len(removed)} removed items")
+
         res_values: Dict[str, str] = {}
         res_versions: Dict[str, int] = {}
         res_removed: Dict[str, int] = {}
@@ -504,6 +520,7 @@ class Replicator(threading.Thread):
             elif source == "local" and state == "val":
                 res_versions[key] = ver
 
+        self.logger.info("Data resolved successfully")
         return res_values, res_versions, res_removed
 
     # ---------------- Client-side helpers using RPC ----------------
@@ -550,7 +567,7 @@ class Replicator(threading.Thread):
         nodes_to_fetch = set()
         
         # Get alive successors
-        successors = self.get_successor_list(REPLICATION_K, alive_only=True)
+        successors = self.get_successor_list(REPLICATION_K)
         for succ in successors:
             if succ and succ.address != self.node.address:
                 nodes_to_fetch.add(succ.address)
@@ -764,6 +781,8 @@ class Replicator(threading.Thread):
         inc_ts = inc_state[1] if inc_state else 0
         local_ts = local_state[1] if local_state else 0
 
+        self.logger.info(f"Conflict resolution for key: inc=({inc_state}, {inc_ts}), local=({local_state}, {local_ts})")
+
         # Decide winner
         if inc_state and (inc_ts > local_ts):
             win_source, win_state, win_ver = "inc", inc_state[0], inc_ts
@@ -794,4 +813,5 @@ class Replicator(threading.Thread):
         if win_ver <= 0:
             win_ver = self.node.now_version()
 
+        self.logger.info(f"Winner  (source={win_source}, state={win_state}, val={win_val}, ver={win_ver})")
         return win_source, win_state, win_val, win_ver
