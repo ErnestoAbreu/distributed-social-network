@@ -176,7 +176,7 @@ class Replicator(threading.Thread):
     def replicate_data(self):
         """Replica local data + tombstones to successor nodes (LWW by version)"""
         # Get exactly REPLICATION_K alive successors (excluding self)
-        alive_successors = self.get_successor_list(REPLICATION_K - 1, alive_only=True)
+        alive_successors = self.get_successor_list(REPLICATION_K, alive_only=True)
 
         if not alive_successors:
             self.logger.debug("No alive successors available for replication")
@@ -205,31 +205,33 @@ class Replicator(threading.Thread):
                     self._replicate_set_to_node(successor, key)
                     success_count += 1
                 except Exception as e:
-                    self.logger.error(f"Failed to replicate set {key} to {successor.address}: {e}")
+                    self.logger.debug(f"Failed to replicate set {key} to {successor.address}: {e}")
                     if successor.address not in failed_replications:
                         failed_replications[successor.address] = []
                     failed_replications[successor.address].append(('set', key))
                     fail_count += 1
+                    break
 
             for key in deleted_items.keys():
                 try:
                     self._replicate_remove_to_node(successor, key)
                     success_count += 1
                 except Exception as e:
-                    self.logger.error(f"Failed to replicate delete {key} to {successor.address}: {e}")
+                    self.logger.debug(f"Failed to replicate delete {key} to {successor.address}: {e}")
                     if successor.address not in failed_replications:
                         failed_replications[successor.address] = []
                     failed_replications[successor.address].append(('remove', key))
                     fail_count += 1
+                    break
             
             if fail_count == 0:
                 self.logger.info(f"Successfully replicated {success_count} items to {successor.address}")
                 successful_replications[successor.address] = success_count
             else:
-                self.logger.warning(f"Replicated {success_count} items to {successor.address} with {fail_count} failures")
+                self.logger.warning(f"Replicated {success_count} items to {successor.address} with many failures")
         
         if failed_replications:
-            self.logger.warning(f"Replication failures: {failed_replications}")
+            self.logger.warning(f"Some replication failures found")
         else:
             self.logger.info(
                 f"Successfully replicated all {len(base_items)} keys + {len(deleted_items)} tombstones to {len(alive_successors)} alive successors"
