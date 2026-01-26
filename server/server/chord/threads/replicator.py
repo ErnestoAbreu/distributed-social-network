@@ -96,10 +96,14 @@ class Replicator(threading.Thread):
         finally:
             channel.close()
 
-    def get_successor_list(self, count=REPLICATION_K, alive_only=False):
-        """Get a list of the next 'count' successor nodes for replication.
-        Continues trying even if some nodes fail to maximize number of replicas.
-        If alive_only=True, only returns alive nodes and continues searching until 'count' alive nodes are found."""
+    def get_successor_list(self, count=REPLICATION_K):
+        """Get a list of the next 'count' alive successor nodes for replication.
+
+        This implementation always treats `alive_only` as True: it walks the
+        successor chain (via RPC FindSuccessor) and collects up to `count`
+        distinct, reachable successors (excluding self). It stops when enough
+        successors are found or when the chain cannot be advanced further.
+        """
         successors = []
 
         with self.node.lock:
@@ -107,58 +111,45 @@ class Replicator(threading.Thread):
 
         if not current or current.address == self.node.address:
             return successors
-        
-        # Start with immediate successor
-        if alive_only:
-            if self.ping_node(current):
-                successors.append(current)
-        else:
-            successors.append(current)
 
-        # Get additional successors by querying each node for its successor
-        # Try multiple times even if some nodes fail
-        # When alive_only is True, we need to try more attempts to get enough alive nodes
-        max_attempts = count * 4 if alive_only else count * 2
-        
-        count_alive = 1
-        for attempt in range(max_attempts):
-            if count_alive >= count:
+        # Walk successors collecting only alive nodes until we have `count`
+        visited = set()
+        hops_remaining = max(count * 10, 50)
+        node_candidate = current
+
+        while len(successors) < count and node_candidate and hops_remaining > 0:
+            hops_remaining -= 1
+
+            # avoid infinite loops
+            if not node_candidate.address or node_candidate.address in visited:
                 break
-                
-            try:
-                if not current or current.address == self.node.address:
-                    break
+            visited.add(node_candidate.address)
 
-                channel = create_channel(current.address)
+            # check alive and append if so
+            if self.ping_node(node_candidate) and node_candidate.address != self.node.address:
+                if not any(s.address == node_candidate.address for s in successors):
+                    successors.append(node_candidate)
+
+            # advance to next successor via RPC
+            try:
+                channel = create_channel(node_candidate.address)
                 try:
                     stub = ChordServiceStub(channel)
-                    next_node = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
+                    next_node = stub.FindSuccessor(ID(id=(node_candidate.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
                 finally:
                     channel.close()
 
-                if next_node and next_node.address != self.node.address:
-                    # Avoid duplicates
-                    if not any(s.address == next_node.address for s in successors):
-                        if alive_only:
-                            if self.ping_node(next_node):
-                                count_alive += 1
-                                successors.append(next_node)
-                        else:
-                            if self.ping_node(next_node):
-                                count_alive += 1
-                            successors.append(next_node)
-                    current = next_node
-                else:
+                if not next_node or next_node.address == node_candidate.address:
                     break
-
+                node_candidate = next_node
             except Exception as e:
-                self.logger.debug(f"Failed to get successor from {current.address}: {e}. Trying to continue...")
-                # Try to continue with the next node in the chain even if one fails
-                current = next_node if 'next_node' in locals() else None
+                self.logger.debug(f"Failed to get successor from {getattr(node_candidate, 'address', 'unknown')}: {e}")
+                break
+
         return successors
     
     def ping_node(self, node):
-        """Check if a node is alive with a short timeout. Retries once on failure."""
+        """Check if a node is alive with a short timeout."""
         if not node or not node.address:
             return False
         try:
@@ -302,7 +293,7 @@ class Replicator(threading.Thread):
             if is_meta_key(key):
                 continue
 
-            key_hash = hash_key(key, self.node.id.bit_length())
+            key_hash = hash_key(key, self.node.m_bits)
 
             # Find the successor responsible for this key
             try:
@@ -653,7 +644,7 @@ class Replicator(threading.Thread):
         
         for key in all_incoming_values.keys():
             try:
-                key_hash = hash_key(key, self.node.id.bit_length())
+                key_hash = hash_key(key, self.node.m_bits)
                 responsible = self.node.find_successor(key_hash)
                 
                 # Keep if we're responsible OR if we're a replica holder
@@ -668,7 +659,7 @@ class Replicator(threading.Thread):
                             stub = ChordServiceStub(channel)
                             current = responsible
                             for _ in range(REPLICATION_K - 1):
-                                next_resp = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.id.bit_length())), timeout=TIMEOUT)
+                                next_resp = stub.FindSuccessor(ID(id=(current.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
                                 if next_resp and next_resp.address == self.node.address:
                                     should_keep = True
                                     break
@@ -690,7 +681,7 @@ class Replicator(threading.Thread):
         
         for key in all_incoming_removed.keys():
             try:
-                key_hash = hash_key(key, self.node.id.bit_length())
+                key_hash = hash_key(key, self.node.m_bits)
                 responsible = self.node.find_successor(key_hash)
                 if responsible.address == self.node.address:
                     filtered_removed[key] = all_incoming_removed[key]
