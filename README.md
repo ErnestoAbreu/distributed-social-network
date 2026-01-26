@@ -34,7 +34,7 @@ docker build -f Dockerfile.router -t social-router:latest .
 
 Lanzaremos 3 nodos. Usaremos `--network-alias socialnet_server` en todos. Esto crea un DNS interno estilo "Load Balancer": cuando el cliente pregunte por `socialnet_server`, Docker le dará la IP de cualquiera de los nodos vivos.
 
-> **Nota sobre TLS**: Por defecto, los nodos se ejecutan sin TLS (`USE_TLS=false`). Para habilitar TLS con generación automática de certificados, consulta la [documentación de seguridad](README.md#3-configuración-de-seguridad-opcional).
+> **Nota sobre TLS**: Por defecto, los nodos se ejecutan sin TLS (`USE_TLS=false`). Para habilitar TLS con generación automática de certificados, consulta ([README.md#3-configuración-de-seguridad-opcional](https://github.com/ErnestoAbreu/distributed-social-network/tree/security?tab=readme-ov-file#2-configuraci%C3%B3n-de-seguridad-opcional)).
 
 **Nodo 1:**
 
