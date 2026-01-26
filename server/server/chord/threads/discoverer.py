@@ -10,7 +10,7 @@ from server.server.chord.utils.config import TIMEOUT, DISCOVERY_INTERVAL
 from server.server.chord.utils.cache import load_node_cache, add_to_node_cache
 from server.server.config import DEFAULT_PORT
 from server.server.chord.protos.chord_pb2_grpc import ChordServiceStub
-from server.server.chord.protos.chord_pb2 import Empty, NodeInfo
+from server.server.chord.protos.chord_pb2 import Empty, NodeInfo, ID
 
 logger = logging.getLogger('socialnet.server.chord.threads.discoverer')
 
@@ -194,32 +194,72 @@ class Discoverer(threading.Thread):
         for candidate_addr in candidate_nodes:
             try:
                 self.logger.info(f'Attempting to join ring via {candidate_addr}...')
-                
-                # Test if node is reachable
+
+                # Ensure candidate is reachable and ask it for the successor of our id
                 channel = create_channel(candidate_addr)
-                stub = ChordServiceStub(channel)
-                stub.Ping(Empty(), timeout=TIMEOUT)
-                channel.close()
-                
-                # Join through this node
-                self.node.join(NodeInfo(address=candidate_addr))
-                self.logger.info(f'Successfully joined Chord ring via {candidate_addr}')
-                
-                # Wait for topology to stabilize before election
-                # This gives the Stabilizer thread time to update finger tables
-                self.logger.info('Waiting for ring topology to stabilize before election...')
-                time.sleep(3)
-                
-                # Trigger election after topology stabilization
+                try:
+                    stub = ChordServiceStub(channel)
+                    stub.Ping(Empty(), timeout=TIMEOUT)
+                    successor = stub.FindSuccessor(ID(id=self.node.id), timeout=TIMEOUT)
+                finally:
+                    channel.close()
+
+                if not successor or not successor.address:
+                    self.logger.debug(f'Candidate {candidate_addr} did not return a valid successor')
+                    continue
+
+                # If successor is ourselves, joining via this candidate didn't place us in the ring
+                if successor.address == self.node.address:
+                    self.logger.debug(f'FindSuccessor via {candidate_addr} returned self as successor; trying next candidate')
+                    continue
+
+                # Set our predecessor to self and immediate successor to the returned node
+                with self.node.lock:
+                    old_succ = self.node.finger[0]
+                    # mark predecessor as self until the successor confirms
+                    self.node.predecessor = NodeInfo(id=self.node.id, address=self.node.address)
+                    self.node.finger[0] = successor
+
+                self.logger.info(f'Joined ring: successor set to {successor.address} (via {candidate_addr})')
+
+                # Notify the successor about us so it can update its predecessor
+                try:
+                    channel = create_channel(successor.address)
+                    try:
+                        stub = ChordServiceStub(channel)
+                        stub.UpdatePredecessor(NodeInfo(id=self.node.id, address=self.node.address), timeout=TIMEOUT)
+                    finally:
+                        channel.close()
+                except Exception as e:
+                    self.logger.debug(f'Failed to notify successor {successor.address}: {e}')
+
+                # Trigger initial replication sync synchronously
+                try:
+                    if self.node.replicator:
+                        self.node.replicator.initial_sync()
+                except Exception as e:
+                    self.logger.debug(f'initial_sync failed: {e}')
+
+                # Wait briefly for topology stabilization (poll successor to be non-self)
+                self.logger.info('Waiting briefly for topology to stabilize before election...')
+                deadline = time.time() + 10
+                while time.time() < deadline:
+                    with self.node.lock:
+                        succ = self.node.finger[0]
+                    if succ and succ.address and succ.address != self.node.address:
+                        break
+                    time.sleep(0.5)
+
+                # Trigger election if available
                 if self.node.elector:
-                    self.logger.info('Topology stabilized, triggering leader election')
-                    self.node.elector.call_for_election()
-                else:
-                    self.logger.warning('Elector not initialized yet')
-                
+                    try:
+                        self.node.elector.call_for_election()
+                    except Exception as ee:
+                        self.logger.debug(f'call_for_election failed: {ee}')
+
                 self.log_network_status()
                 return True
-                
+
             except Exception as e:
                 self.logger.debug(f'Failed to join via {candidate_addr}: {e}')
                 continue
