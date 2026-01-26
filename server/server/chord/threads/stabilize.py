@@ -128,6 +128,15 @@ class Stabilizer(threading.Thread):
     def _fix_finger_table(self):
         """Update finger table with error handling"""
         try:
+            # First, clean up dead nodes from finger table
+            with self.node.lock:
+                for i in range(M_BITS):
+                    if self.node.finger[i] and self.node.finger[i].address != self.node.address:
+                        if not self._ping_node(self.node.finger[i]):
+                            self.logger.debug(f"Cleaning dead node from finger[{i}]: {self.node.finger[i].address}")
+                            self.node.finger[i] = None
+            
+            # Now recompute all finger entries
             for i in range(M_BITS):
                 start = (self.node.id + (1 << i)) % (1 << M_BITS)
                 try:
