@@ -158,6 +158,7 @@ class PostService(PostServiceServicer):
         post_id = str(time.time_ns())
         iso_timestamp = self.post_repo.node.get_datetime()
 
+        logger.info(f'Publishing post {post_id} for user {user_id} at {iso_timestamp}')
         post = Post(post_id=post_id, user_id=user_id, content=content, timestamp=iso_timestamp, is_repost=False)
 
         error = self.post_repo.save_post(post)
@@ -187,6 +188,8 @@ class PostService(PostServiceServicer):
 
         post_id = str(time.time_ns())
         iso_timestamp = self.post_repo.node.get_datetime()
+        
+        logger.info(f'Reposting post {original_post_id} as new post {post_id} for user {user_id} at {iso_timestamp}')
         post = Post(post_id=post_id, user_id=user_id, content=original_post.content, timestamp=iso_timestamp, is_repost=True,
                     original_post_id=original_post.post_id, original_post_user_id=original_post.user_id, original_post_timestamp=original_post.timestamp)
 
