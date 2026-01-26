@@ -34,7 +34,9 @@ docker build -f Dockerfile.router -t social-router:latest .
 
 Lanzaremos 3 nodos. Usaremos `--network-alias socialnet_server` en todos. Esto crea un DNS interno estilo "Load Balancer": cuando el cliente pregunte por `socialnet_server`, Docker le dará la IP de cualquiera de los nodos vivos.
 
-**Nodo 1 (Seed / Bootstrap):**
+> **Nota sobre TLS**: Por defecto, los nodos se ejecutan sin TLS (`USE_TLS=false`). Para habilitar TLS con generación automática de certificados, consulta la [documentación de seguridad](README.md#3-configuración-de-seguridad-opcional).
+
+**Nodo 1:**
 
 ```bash
 docker run -d \
@@ -70,11 +72,9 @@ docker run -d \
 
 ```
 
-> Al tener todos el mismo `--network-alias`, el `discoverer.py` en el cliente hará `nslookup socialnet_server` y recibirá las 3 IPs. Tu código del servidor usará el `--hostname` (node-1, node-2) para generar su ID de Chord consistentemente.
-
 #### Paso D: Desplegar el Cliente (Frontend)
 
-El cliente se une a la misma red. Mapeamos el puerto 8501 para que puedas verlo en tu navegador.
+El cliente se une a la misma red. Mapeamos el puerto 8501 para que se pueda ver desde el navegador.
 
 ```bash
 docker run -d \
@@ -108,7 +108,7 @@ docker run -d \
 
 #### Paso E: Desplegar el Router (Recomendado)
 
-El router proporciona un punto de acceso único que automáticamente descubre los clientes disponibles y maneja el failover. Solo necesitas acceder al router en el puerto 8080, y él se encargará de redirigir al cliente activo.
+El router proporciona un punto de acceso único que automáticamente descubre los clientes disponibles y maneja el failover. Solo se necesita acceder al router en el puerto 8080, y él se encargará de redirigir al cliente activo.
 
 ```bash
 docker run -d \
@@ -126,7 +126,107 @@ docker run -d \
 
 ---
 
-### 2. Verificación y Limpieza
+### 2. Configuración de seguridad (Opcional)
+
+El sistema soporta comunicación segura mediante TLS con autenticación mutua entre cliente - servidor y servidor - servidor. Los certificados de los nodos se generan automáticamente en tiempo de ejecución.
+
+#### Paso 1: Generar la Autoridad Certificadora (CA)
+
+```bash
+./scripts/security/gen-ca.sh
+```
+
+**Paso 2: Desplegar con TLS habilitado**
+
+##### Servidor con TLS  
+
+```bash
+docker run -d \
+  --name node-1 \
+  --hostname node-1 \
+  --network social-network \
+  --network-alias socialnet_server \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-server:latest
+```
+
+```bash
+docker run -d \
+  --name node-2 \
+  --hostname node-2 \
+  --network social-network \
+  --network-alias socialnet_server \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-server:latest
+```
+
+```bash
+docker run -d \
+  --name node-3 \
+  --hostname node-3 \
+  --network social-network \
+  --network-alias socialnet_server \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-server:latest
+```
+
+##### Cliente con TLS  
+
+
+```bash
+docker run -d \
+  --name client-1 \
+  --hostname client-1 \
+  --network social-network \
+  --network-alias socialnet_client \
+  -p 8501:8501 \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-client:latest
+```
+
+```bash
+docker run -d \
+  --name client-2 \
+  --hostname client-2 \
+  --network social-network \
+  --network-alias socialnet_client \
+  -p 8502:8501 \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-client:latest
+```
+
+```bash
+docker run -d \
+  --name client-3 \
+  --hostname client-3 \
+  --network social-network \
+  --network-alias socialnet_client \
+  -p 8503:8501 \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-client:latest
+```
+
+---
+
+### 3. Verificación y Limpieza
 
 **Cómo probar:**
 
@@ -152,5 +252,4 @@ docker run -d \
 ```bash
 docker rm -f node-1 node-2 node-3 client-1 client-2 client-3 router
 docker network rm social-network
-
 ```

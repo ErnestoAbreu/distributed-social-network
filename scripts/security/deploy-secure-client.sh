@@ -33,28 +33,27 @@ fi
 
 
 echo "--- Desplegando Cliente en Docker ---"
-# docker run -d \
-#   --name $CLIENT_NAME \
-#   --hostname $CLIENT_NAME \
-#   --network social-network \
-#   --network-alias socialnet_client \
-#   -p $PORT:8501 \
-#   -v $(pwd)/$CERT_DIR:/etc/app/certs:ro \
-#   -e USE_TLS=true \
-#   -e CA_CERT_PATH=/app/certs/ca.crt \
-#   -e CA_KEY_PATH=/app/certs/ca.key \
-#   social-client:latest
-
-docker service create -d \
+docker run -d \
   --name $CLIENT_NAME \
   --hostname $CLIENT_NAME \
   --network social-network \
   --network-alias socialnet_client \
   -p $PORT:8501 \
-  --mount type=bind,source=$(pwd)/$CERT_DIR,target=/etc/app/certs,readonly \
+  -v $(pwd)/$CERT_DIR:/etc/app/certs:ro \
   -e USE_TLS=true \
   -e CA_CERT_PATH=/app/certs/ca.crt \
   -e CA_KEY_PATH=/app/certs/ca.key \
   social-client:latest
+
+# docker service create -d \
+#   --name $CLIENT_NAME \
+#   --hostname $CLIENT_NAME \
+#   --network social-network \
+#   -p $PORT:8501 \
+#   --mount type=bind,source=$(pwd)/$CERT_DIR,target=/etc/app/certs,readonly \
+#   -e USE_TLS=true \
+#   -e CA_CERT_PATH=/app/certs/ca.crt \
+#   -e CA_KEY_PATH=/app/certs/ca.key \
+#   social-client:latest
 
 echo "--- ¡Despliegue del cliente completado! ---"
