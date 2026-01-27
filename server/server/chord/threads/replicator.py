@@ -727,7 +727,7 @@ class Replicator(threading.Thread):
             self.logger.error(f"Error during initial sync: {e}")
 
         cycle_count = 0
-        resolve_every = 5  # Resolve replicas every 5 cycles
+        resolve_every = 2
 
         while True:
             try:
