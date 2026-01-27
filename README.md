@@ -70,6 +70,13 @@ docker run -d \
   --network-alias socialnet_server \
   social-server:latest
 
+```bash
+docker run -d \
+  --name node-5 \
+  --hostname node-5 \
+  --network social-network \
+  --network-alias socialnet_server \
+  social-server:latest
 ```
 
 #### Paso D: Desplegar el Cliente (Frontend)
@@ -178,6 +185,46 @@ docker run -d \
   -e CA_KEY_PATH=/app/certs/ca.key \
   social-server:latest
 ```
+
+```bash
+docker run -d \
+  --name node-4 \
+  --hostname node-4 \
+  --network social-network \
+  --network-alias socialnet_server \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-server:latest
+```
+
+```bash
+docker run -d \
+  --name node-5 \
+  --hostname node-5 \
+  --network social-network \
+  --network-alias socialnet_server \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-server:latest
+```
+
+```bash
+docker run -d \
+  --name node-6 \
+  --hostname node-6 \
+  --network social-network \
+  --network-alias socialnet_server \
+  -v $(pwd)/certs:/etc/app/certs:ro \
+  -e USE_TLS=true \
+  -e CA_CERT_PATH=/app/certs/ca.crt \
+  -e CA_KEY_PATH=/app/certs/ca.key \
+  social-server:latest
+```
+
 
 ##### Cliente con TLS  
 
