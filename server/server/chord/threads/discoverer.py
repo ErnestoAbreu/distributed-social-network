@@ -75,7 +75,6 @@ class Discoverer(threading.Thread):
             self.logger.info(f"NETWORK STATUS")
             self.logger.info(f"  Node: {self.node.id}@{self.node.address}")
             self.logger.info(f"  {successor_str}")
-            self.logger.info(f"  {predecessor_str}")
             self.logger.info(f"  Status: {network_status}{leader_info}")
             self.logger.info("=" * 60)
             
@@ -257,7 +256,7 @@ class Discoverer(threading.Thread):
                     except Exception as ee:
                         self.logger.debug(f'call_for_election failed: {ee}')
 
-                self.log_network_status()
+                # self.log_network_status()
                 return True
 
             except Exception as e:
@@ -290,7 +289,7 @@ class Discoverer(threading.Thread):
                 self.logger.warning("Elector not available yet")
             
             self.logger.info(f"New Chord ring created. Node {self.node.id}@{self.node.address} is the only node.")
-            self.log_network_status()
+            # self.log_network_status()
             
         except Exception as e:
             self.logger.error(f"Error creating new ring: {e}")

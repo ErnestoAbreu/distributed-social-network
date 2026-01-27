@@ -781,8 +781,6 @@ class Replicator(threading.Thread):
         inc_ts = inc_state[1] if inc_state else 0
         local_ts = local_state[1] if local_state else 0
 
-        self.logger.info(f"Conflict resolution for key: inc=({inc_state}, {inc_ts}), local=({local_state}, {local_ts})")
-
         # Decide winner
         if inc_state and (inc_ts > local_ts):
             win_source, win_state, win_ver = "inc", inc_state[0], inc_ts
@@ -813,5 +811,4 @@ class Replicator(threading.Thread):
         if win_ver <= 0:
             win_ver = self.node.now_version()
 
-        self.logger.info(f"Winner  (source={win_source}, state={win_state}, val={win_val}, ver={win_ver})")
         return win_source, win_state, win_val, win_ver

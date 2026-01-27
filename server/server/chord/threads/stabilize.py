@@ -173,6 +173,9 @@ class Stabilizer(threading.Thread):
 
                     # If we are our own successor, skip stabilization
                     if successor.address == self.node.address:
+                        # Recompute finger table entries because network changed
+                        self._fix_finger_table()
+                        
                         self.logger.info("Single node in ring, skipping stabilization")
                         continue
                 
