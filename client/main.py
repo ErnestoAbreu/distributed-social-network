@@ -768,11 +768,11 @@ def post_view():
     st.markdown("---")
     
     # Botón para refrescar
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
-    with col1:
-        if st.button('🔄 Refresh Feed', use_container_width=True, help="Load latest posts"):
-            refresh_posts()
-            st.rerun()
+    # col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+    # with col1:
+    #     if st.button('🔄 Refresh Feed', use_container_width=True, help="Load latest posts"):
+    #         refresh_posts()
+    #         st.rerun()
 
     st.markdown("")
 
