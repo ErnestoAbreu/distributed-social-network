@@ -232,7 +232,7 @@ class ChordNode(ChordServiceServicer):
             finally:
                 channel.close()
 
-            if successor and successor.address:
+            if successor and successor.address and self._ping_node(successor):
                 self.finger[0] = successor
                 logger.info(f"Successfully joined ring, successor is {successor.address}")
             else:
@@ -248,16 +248,19 @@ class ChordNode(ChordServiceServicer):
         """Find the successor node responsible for a given key."""
         # read successor atomically
         with self.lock:
-            succ: NodeInfo = self.finger[0] or NodeInfo(id=self.id, address=self.address)
-
+            succ: NodeInfo = self.finger[0]
+        
+        if not succ or succ.address == self.address or not self._ping_node(succ):
+            succ = NodeInfo(id=self.id, address=self.address)
+    
         # If we are the only node (successor is self), return ourselves
         if succ.address == self.address:
-            logger.debug("find_successor: single node ring -> return self")
+            logger.info("find_successor: single node ring -> return self")
             return succ
         
         # If id is between us and our successor (handles wrap-around)
         if is_in_interval(key, self.id, succ.id, inclusive_end=True):
-            logger.debug(f"find_successor: key {key} in ({self.id}, {succ.id}] -> return succ {succ.address}")
+            logger.info(f"find_successor: key {key} in ({self.id}, {succ.id}] -> return succ {succ.address}")
             return succ
         
         # Otherwise, ask the closest preceding node
@@ -274,7 +277,7 @@ class ChordNode(ChordServiceServicer):
                 result: NodeInfo = stub.FindSuccessor(ID(id=key), timeout=TIMEOUT_FIND_SUCCESSOR)
             finally:
                 channel.close()
-            logger.debug(f"find_successor: remote returned {result.id}@{result.address}")
+            logger.info(f"find_successor: remote returned {result.id}@{result.address}")
             return result
         except Exception as e:
             logger.warning(f"Remote find_successor failed: {e}")
@@ -285,7 +288,7 @@ class ChordNode(ChordServiceServicer):
         """Find the closest finger preceding key."""
         with self.lock:
             for i in range(M_BITS - 1, -1, -1):
-                if self.finger[i] and is_in_interval(self.finger[i].id, self.id, key):
+                if self.finger[i] and self._ping_node(self.finger[i]) and is_in_interval(self.finger[i].id, self.id, key):
                     return self.finger[i]
 
             return NodeInfo(id=self.id, address=self.address)
@@ -341,3 +344,21 @@ class ChordNode(ChordServiceServicer):
         server.start()
         logger.info('Chord gRPC server started')
         server.wait_for_termination()
+
+    # ---- Utils -----
+    def _ping_node(self, node):
+        """Check if a node is reachable"""
+        if not node or not node.address:
+            return False
+        try:
+            channel = create_channel(node.address)
+            try:
+                stub = ChordServiceStub(channel)
+                stub.Ping(Empty(), timeout=TIMEOUT)
+                return True
+            finally:
+                channel.close()
+        except Exception as e:
+            # Node unreachable is expected behavior, use debug level
+            logger.warning(f"Node {node.address} unreachable: {e}")
+            return False

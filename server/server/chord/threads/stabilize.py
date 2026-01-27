@@ -78,6 +78,14 @@ class Stabilizer(threading.Thread):
         if not successor:
             return False
         
+        # If successor is dead, network changed — pick next alive successor
+        if not self._ping_node(successor):
+            self.logger.info(f"Successor {successor.address} appears dead in _fix_successor, finding new successor")
+            new_succ = self._find_next_alive_successor()
+            with self.node.lock:
+                self.node.finger[0] = new_succ
+            return True
+        
          # Try getting successor's predecessor
         try:
             channel = create_channel(successor.address)
@@ -115,6 +123,11 @@ class Stabilizer(threading.Thread):
         if not successor:
             return
         
+        # Verify successor is alive before notifying
+        if not self._ping_node(successor):
+            self.logger.debug(f"Not notifying successor {successor.address} because it's unreachable")
+            return
+
         try:
             channel = create_channel(successor.address)
             try:
@@ -127,6 +140,7 @@ class Stabilizer(threading.Thread):
 
     def _fix_finger_table(self):
         """Update finger table with error handling"""
+        self.logger.info("Fixing finger table")
         try:
             # First, clean up dead nodes from finger table
             with self.node.lock:
@@ -141,13 +155,24 @@ class Stabilizer(threading.Thread):
                 start = (self.node.id + (1 << i)) % (1 << M_BITS)
                 try:
                     succ_i = self.node.find_successor(start)
-                    if succ_i:
+                    if not succ_i:
+                        continue
+
+                    # If succ_i is self or alive, use it. Otherwise fallback to next alive successor.
+                    if succ_i.address == self.node.address or self._ping_node(succ_i):
                         with self.node.lock:
                             self.node.finger[i] = succ_i
+                    else:
+                        self.logger.debug(f"find_successor returned dead node for finger[{i}]: {succ_i.address}, using next alive successor")
+                        next_alive = self._find_next_alive_successor()
+                        with self.node.lock:
+                            self.node.finger[i] = next_alive
                 except Exception as ie:
-                    self.logger.debug(f"failed to update finger {i}: {ie}")
+                    self.logger.warning(f"failed to update finger {i}: {ie}")
         except Exception as e:
             self.logger.warning(f"updating finger table failed: {e}")
+
+        self.logger.info("Finger table fixed")
 
     def run(self):
         """Periodically stabilize finger table and predecessor"""
@@ -185,8 +210,8 @@ class Stabilizer(threading.Thread):
                 # Notify successor about ourselves        
                 self._notify_successor()                
 
-                if not network_changed:
-                    continue
+                # if not network_changed:
+                #     continue
 
                 # Recompute finger table entries because network changed
                 self._fix_finger_table()

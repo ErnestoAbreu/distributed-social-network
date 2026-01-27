@@ -40,8 +40,6 @@ class Discoverer(threading.Thread):
         Shows live updates for successor and predecessor.
         """
         try:
-            self._refresh_topology_info()
-            
             with self.node.lock:
                 successor = self.node.finger[0] if self.node.finger[0] else None
                 predecessor = self.node.predecessor
@@ -80,61 +78,6 @@ class Discoverer(threading.Thread):
             
         except Exception as e:
             self.logger.error(f"Error logging network status: {e}")
-
-    def _refresh_topology_info(self):
-        """
-        Refreshes successor and predecessor information by querying the current successor.
-        This ensures the logged info is up-to-date.
-        """
-        try:
-            with self.node.lock:
-                successor = self.node.finger[0]
-            
-            if not successor or successor.address == self.node.address:
-                # Node is isolated, no refresh needed
-                return
-            
-            # Query successor's predecessor to check for a better successor
-            try:
-                channel = create_channel(successor.address, options=[('grpc.keepalive_time_ms', 5000)])
-                try:
-                    stub = ChordServiceStub(channel)
-                    middle_node = stub.GetPredecessor(Empty(), timeout=TIMEOUT)
-                    
-                    # If middle_node is alive and between us and current successor, update successor
-                    if middle_node and middle_node.address and middle_node.address != self.node.address:
-                        if is_in_interval(middle_node.id, self.node.id, successor.id):
-                            with self.node.lock:
-                                old_successor = self.node.finger[0]
-                                self.node.finger[0] = middle_node
-                            if old_successor.address != middle_node.address:
-                                self.logger.debug(f"Updated successor from {old_successor.address} to {middle_node.address}")
-                finally:
-                    channel.close()
-            except Exception as e:
-                self.logger.debug(f"Failed to refresh successor info: {e}")
-            
-            # Try to update predecessor from successor
-            try:
-                with self.node.lock:
-                    current_successor = self.node.finger[0]
-                
-                if current_successor and current_successor.address != self.node.address:
-                    channel = create_channel(current_successor.address, options=[('grpc.keepalive_time_ms', 5000)])
-                    try:
-                        stub = ChordServiceStub(channel)
-                        # Request successor to check its predecessor (which should be us or closer to us)
-                        stub.UpdatePredecessor(
-                            NodeInfo(id=self.node.id, address=self.node.address), 
-                            timeout=TIMEOUT
-                        )
-                    finally:
-                        channel.close()
-            except Exception as e:
-                self.logger.debug(f"Failed to refresh predecessor info: {e}")
-                
-        except Exception as e:
-            self.logger.debug(f"Error refreshing topology info: {e}")
 
     def discover_nodes(self) -> list[str]:
         """
@@ -199,17 +142,20 @@ class Discoverer(threading.Thread):
                 try:
                     stub = ChordServiceStub(channel)
                     stub.Ping(Empty(), timeout=TIMEOUT)
-                    successor = stub.FindSuccessor(ID(id=self.node.id), timeout=TIMEOUT)
+                    successor = stub.FindSuccessor(ID(id=(self.node.id + 1) % (2 ** self.node.m_bits)), timeout=TIMEOUT)
+                except Exception as e:
+                    self.logger.info(f'Candidate {candidate_addr} unreachable or failed to respond: {e}')
+                    continue
                 finally:
                     channel.close()
 
-                if not successor or not successor.address:
-                    self.logger.debug(f'Candidate {candidate_addr} did not return a valid successor')
+                if not successor or not successor.address or not self._ping_node(successor):
+                    self.logger.info(f'Candidate {candidate_addr} did not return a valid successor')
                     continue
 
                 # If successor is ourselves, joining via this candidate didn't place us in the ring
                 if successor.address == self.node.address:
-                    self.logger.debug(f'FindSuccessor via {candidate_addr} returned self as successor; trying next candidate')
+                    self.logger.info(f'FindSuccessor via {candidate_addr} returned self as successor; trying next candidate')
                     continue
 
                 # Set our predecessor to self and immediate successor to the returned node
@@ -256,7 +202,7 @@ class Discoverer(threading.Thread):
                     except Exception as ee:
                         self.logger.debug(f'call_for_election failed: {ee}')
 
-                # self.log_network_status()
+                self.log_network_status()
                 return True
 
             except Exception as e:
@@ -289,7 +235,7 @@ class Discoverer(threading.Thread):
                 self.logger.warning("Elector not available yet")
             
             self.logger.info(f"New Chord ring created. Node {self.node.id}@{self.node.address} is the only node.")
-            # self.log_network_status()
+            self.log_network_status()
             
         except Exception as e:
             self.logger.error(f"Error creating new ring: {e}")
@@ -371,7 +317,7 @@ class Discoverer(threading.Thread):
                     successor = self.node.finger[0] if self.node.finger[0] else None
                 
                 # Check if node is isolated (no ring joined)
-                is_isolated = (successor and successor.address == self.node.address) or not successor
+                is_isolated = (successor and successor.address == self.node.address) or not successor or not self._ping_node(successor)
                 
                 # Detect topology changes
                 if prev_successor != successor:
@@ -399,3 +345,21 @@ class Discoverer(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in discovery loop: {e}")
                 time.sleep(self.interval)
+
+    # ---- Utils -----
+    def _ping_node(self, node):
+        """Check if a node is reachable"""
+        if not node or not node.address:
+            return False
+        try:
+            channel = create_channel(node.address)
+            try:
+                stub = ChordServiceStub(channel)
+                stub.Ping(Empty(), timeout=TIMEOUT)
+                return True
+            finally:
+                channel.close()
+        except Exception as e:
+            # Node unreachable is expected behavior, use debug level
+            self.logger.warning(f"Node {node.address} unreachable: {e}")
+            return False
